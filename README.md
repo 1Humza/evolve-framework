@@ -21,154 +21,26 @@ Below will hopefully be all the documentation needed to utilize the framework. E
    ![image](https://user-images.githubusercontent.com/70859111/128655363-33d0f7aa-aa55-4c62-9392-e43cec28a034.png)
 
 The Modules are organized with between these 4 sub folders:
-- Classes
+- [Classes](#classes)
+- [Client](#client)
+- [Server](#server)
+- [Shared](#shared)
+
+### Classes
+Sub folders of this folder are named based on the class that they hold.
+
+![image](https://user-images.githubusercontent.com/70859111/128658321-5231245a-c17a-4f60-afe6-2c0811c579a9.png)
+
+Modules that make up a class must be prefixed with the class name. In the case of the example above, it should be `Template`. 
+Following the class name is one of the following identifiers:
 - Client
 - Server
 - Shared
 
-[Install](#test-this)
 
-- d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d- d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d- d
-- d
-- d
-- - d
-- d
-- d- d
-- d
-- d- d
-- d
-- d- d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- d
-- d
-- d- d
-- d
-- d
-- - d
-- d
-- d- d
-- d
-- d- d
-- d
-- d- d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- d
-- d
-- d- d
-- d
-- d
-- - d
-- d
-- d- d
-- d
-- d- d
-- d
-- d- d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- d
-- d
-- d- d
-- d
-- d
-- - d
-- d
-- d- d
-- d
-- d- d
-- d
-- d- d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- - d
-- d
-- d
-- 
-# Test This
+### Client
+### Server
+### Shared
 
 # Methods
 
