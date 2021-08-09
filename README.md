@@ -23,27 +23,30 @@ Below will hopefully be all the documentation needed to utilize the framework. E
 The Modules are organized with between these 4 sub folders:
 - [Classes](#classes)
 - [Client](#client)
+  - Only accessible via the client-side scripts.
 - [Server](#server)
+    - Only accessible via the server-side scripts.
 - [Shared](#shared)
+    - Accessible via both client and server side scripts.
 
 ### Classes
 Sub folders of this folder are named based on the class that they hold.
 
 ![image](https://user-images.githubusercontent.com/70859111/128658321-5231245a-c17a-4f60-afe6-2c0811c579a9.png)
 
-Modules that make up a class must be prefixed with the class name. In the case of the example above, it should be `Template`. 
+Modules that make up a class must be prefixed with the class name. In the case of the example above, it should be `Template`.
 Following the class name is `-` followed by one of the following identifiers:
 - `Client`
-    - Only accessible via the client-side scripts. User interface related classes are an example of what you would want suffix with this.
+    - User interface related classes are an example of what you would want suffix with this.
 - `Server`
-    - Only accessible via the server-side scripts. Back end mechanics that aren not to be visible to the should use this suffix.
+    - Back end mechanics that aren not to be visible to the should use this suffix.
 - `Shared`
-    - Accessible via both client and server side scripts.
+*These share the same rules at the latter 3 folders under Modules as explained [here](#modules).*
 
-
-### Client
-### Server
-### Shared
+The latter 3 folders are where you delegate access to your modules. Access is organized by the same rules as explained in Classes.
+* Client
+* Server
+* Shared
 
 # Methods
 
