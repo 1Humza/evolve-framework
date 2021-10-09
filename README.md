@@ -14,7 +14,7 @@ A ROBLOX Luau custom framework, object oriented in nature, featuring classes and
     <img src="https://user-images.githubusercontent.com/70859111/128650065-3833cd49-adaa-405c-bfe6-5928fc84fa29.png" width="150" height="150">
     
 Below will hopefully be all the documentation needed to utilize the framework. \
-Everything will be kept within `Server Script Service`.
+Everything will be kept within `ServerScriptService`.
 
 ![image](https://user-images.githubusercontent.com/70859111/136673922-497a53b9-709a-421f-bd7b-343db5e6e15d.png)
 
