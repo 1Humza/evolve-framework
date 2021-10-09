@@ -24,7 +24,7 @@ Everything will be kept within `Server Script Service`.
 
 
 ## Table of Contents  
-[Classes](###classes)
+[Classes](#installation)
 [Modules](##modules)
     [Custom Objects](###custom-objects)
 
