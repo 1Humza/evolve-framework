@@ -148,7 +148,3 @@ local typeof = require("typeof") --Overwrites existing `typeof` function with ou
 <br />
 <br />
 <br />
-
-## wait ( number Time )
-```Returns number```\
-PysephDEV's custom wait module that is much faster than the existing global `wait` function. Read more [here](https://devforum.roblox.com/t/custom-wait-the-best-solution-to-yielding/715274).
