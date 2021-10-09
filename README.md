@@ -1,5 +1,6 @@
 # Evolve Framework
-A ROBLOX Luau custom framework, object oriented in nature, featuring classes and inheritance.
+A ROBLOX Luau custom framework, object oriented in nature, featuring classes and inheritance.\
+*Fully compatible with Streaming Enabled.*
 
 
 # Installation
