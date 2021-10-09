@@ -42,7 +42,7 @@ Following the class name is a dash "`-`" proceeded by one of the following ident
     - Back end mechanics that are not to be visible to the client should use this suffix.
 - `Shared`\
 \
-*NOTE: Indentifiers share the same rules as the latter 3 module folders explained [here](#modules).*
+*NOTE: Indentifiers share the same rules as the latter 3 module folders explained [here](#folders).*
 
 ## Modules
 
@@ -70,20 +70,39 @@ Clone( customobject CustomObject )
 <br />
 <br />
 ```css
-AddSearchBank( customobject CustomObject )
-```
-```Returns nil```
-<br />
-<br />
-```css
 GetObject( customobject CustomObject )
 ```
 Returns base instance that the `Custom Object` wrapper is applied to.\
 ```Returns instance```\
 <br />
 ```css
+GetClassName( customobject CustomObject )
+```
+Returns name of Class that the `Custom Object` was created from.\
+```Returns string```\
+<br />
+```css
 GetUUID( customobject CustomObject )
 ```
 Returns unique ID assigned to all `Custom Objects`.\
 ```Returns integer```\
+<br />
+```css
+AddSearchBank( customobject CustomObject )
+```
+```Returns nil```
+<br />
+<br />
+
+
+### Events
+This module creates Custom Objects defined by Classes you create.
+
+#### Methods
+
+```css
+new( instance Object, string Class, ... )
+```
+Creates new `Custom Object` based on `new` constructor defined in the class specified by the second argument. Any more arguments will be passed to the user defined `new` constructor.\
+```Returns instance, ...``` alongside any additional variables returned from class defined `new`.\
 <br />
