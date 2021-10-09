@@ -50,8 +50,9 @@ Following the class name is a dash "`-`" proceeded by one of the following ident
 
 # Modules
 Modules that come with the framework.
+<br />
 
-### Custom Objects
+## Custom Objects
 This module creates Custom Objects defined by Classes you create.
 
 #### Methods
@@ -89,7 +90,7 @@ Returns name of Class that the `Custom Object` was created from.\
 ```css
 GetUUID( customobject CustomObject )
 ```
-```Returns integer```\
+```Returns number```\
 Returns unique ID assigned to all `Custom Objects`.\
 <br />
 ```css
