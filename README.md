@@ -101,8 +101,11 @@ This module creates Custom Objects defined by Classes you create.
 #### Methods
 
 ```css
-new( instance Object, string Class, ... )
+new( string ClassName )
 ```
-Creates new `Custom Object` based on `new` constructor defined in the class specified by the second argument. Any more arguments will be passed to the user defined `new` constructor.\
-```Returns instance, ...``` alongside any additional variables returned from class defined `new`.\
+Creates new `Event` of type `ClassName`. Handles parenting and naming.\
+This module incorporates stravant's `Good Signal` module. It offers a very performant alternative to `Bindable Event`s using the new [Task Library](https://developer.roblox.com/en-us/api-reference/lua-docs/task). Passing `"Signal"` to this function will create a custom `RBXScriptConnection` and return it.\
+```Returns instance``` or ```Returns RBXScriptConnection```
 <br />
+
+##
