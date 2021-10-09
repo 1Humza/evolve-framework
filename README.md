@@ -17,7 +17,3 @@ Below will hopefully be all the documentation needed to utilize the framework. \
 Everything will be kept within `ServerScriptService`.
 
 ![image](https://user-images.githubusercontent.com/70859111/136673922-497a53b9-709a-421f-bd7b-343db5e6e15d.png)
-
-
-### Classes
-Sub folders of this folder are named based on the class that they hold.
