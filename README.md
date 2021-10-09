@@ -19,6 +19,12 @@ Below will hopefully be all the documentation needed to utilize the framework. E
 ## Folders
 
    ![image](https://user-images.githubusercontent.com/70859111/128655363-33d0f7aa-aa55-4c62-9392-e43cec28a034.png)
+   
+##### Table of Contents  
+[YEE](#maid)  
+[OK](#events)  
+
+
 
 The Modules are organized with between these 4 sub folders:
 - Classes
@@ -54,14 +60,14 @@ This module creates Custom Objects defined by Classes you create.
 ```css
 new( instance Object, string Class, ... )
 ```
-Creates new `Custom Object` based on `new` constructor defined in the class specified by the second argument. Any more arguments will be passed to the user defined `new` constructor.\
 ```Returns instance, ...``` alongside any additional variables returned from class defined `new`.\
+Creates new `Custom Object` based on `new` constructor defined in the class specified by the second argument. Any more arguments will be passed to the user defined `new` constructor.\
 <br />
 ```css
 Wrap( instance Object, string Class )
 ```
-Wraps passed Object into `Custom Object`. Allows you to transform existing instances into `Custom Objects` to retain properties and explorer hierarchy.\
 ```Returns customobject```\
+Wraps passed Object into `Custom Object`. Allows you to transform existing instances into `Custom Objects` to retain properties and explorer hierarchy.\
 <br />
 ```css
 Clone( customobject CustomObject )
@@ -72,20 +78,20 @@ Clone( customobject CustomObject )
 ```css
 GetObject( customobject CustomObject )
 ```
-Returns base instance that the `Custom Object` wrapper is applied to.\
 ```Returns instance```\
+Returns base instance that the `Custom Object` wrapper is applied to.\
 <br />
 ```css
 GetClassName( customobject CustomObject )
 ```
-Returns name of Class that the `Custom Object` was created from.\
 ```Returns string```\
+Returns name of Class that the `Custom Object` was created from.\
 <br />
 ```css
 GetUUID( customobject CustomObject )
 ```
-Returns unique ID assigned to all `Custom Objects`.\
 ```Returns integer```\
+Returns unique ID assigned to all `Custom Objects`.\
 <br />
 ```css
 AddSearchBank( customobject CustomObject )
@@ -103,9 +109,13 @@ This module creates Custom Objects defined by Classes you create.
 ```css
 new( string ClassName )
 ```
-Creates new `Event` of type `ClassName`. Handles parenting and naming.\
-This module incorporates stravant's `Good Signal` module. It offers a very performant alternative to `Bindable Event`s using the new [Task Library](https://developer.roblox.com/en-us/api-reference/lua-docs/task). Passing `"Signal"` to this function will create a custom `RBXScriptConnection` and return it.\
-```Returns instance``` or ```Returns RBXScriptConnection```
+```Returns instance``` or ```Returns RBXScriptConnection```\
+Creates new `Event` of type `ClassName`. Handles parenting and naming if it is an `instance`.\
+This module incorporates stravant's *Good Signal* module. It offers a very performant alternative to `Bindable Event`s using the new [Task Library](https://developer.roblox.com/en-us/api-reference/lua-docs/task). Passing "Signal" to this function will create a custom `RBXScriptConnection` and return it.
+<br />
 <br />
 
-##
+### Maid
+Maid class incorporated from Quenty's Nevermore. Read his documentation [here](https://quenty.github.io/api/classes/Maid.html).
+
+
