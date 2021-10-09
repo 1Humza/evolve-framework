@@ -18,9 +18,9 @@ Everything will be kept within `Server Script Service`.
 ![image](https://user-images.githubusercontent.com/70859111/136673922-497a53b9-709a-421f-bd7b-343db5e6e15d.png)
 
 ## Table of Contents  
-[Classes](#installation)
-[Modules](##modules)
-    [Custom Objects](###custom-objects)
+[Classes](#classes)
+[Modules](#modules)
+    [Custom Objects](#custom-objects)
 
 
 ### Folders
