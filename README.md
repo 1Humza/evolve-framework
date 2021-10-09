@@ -49,6 +49,7 @@ Following the class name is a dash "`-`" proceeded by one of the following ident
 *NOTE: Indentifiers share the same rules as the latter 3 module folders explained [here](###folders).*
 
 # Modules
+Modules that come with the framework.
 
 ### Custom Objects
 This module creates Custom Objects defined by Classes you create.
