@@ -29,7 +29,7 @@ Everything will be kept within `Server Script Service`.
     [Custom Objects](###custom-objects)
 
 
-
+### Folders
 The Modules are organized with between these 4 sub folders:
 - Classes
 - Client
@@ -52,7 +52,7 @@ Following the class name is a dash "`-`" proceeded by one of the following ident
     - Back end mechanics that are not to be visible to the client should use this suffix.
 - `Shared`\
 \
-*NOTE: Indentifiers share the same rules as the latter 3 module folders explained [here](#folders).*
+*NOTE: Indentifiers share the same rules as the latter 3 module folders explained [here](###folders).*
 
 ## Modules
 
