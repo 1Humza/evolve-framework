@@ -12,16 +12,10 @@ A ROBLOX Luau custom framework, object oriented in nature, featuring classes and
     
     <img src="https://user-images.githubusercontent.com/70859111/128650065-3833cd49-adaa-405c-bfe6-5928fc84fa29.png" width="150" height="150">
     
-#  Documentation
 Below will hopefully be all the documentation needed to utilize the framework. \
 Everything will be kept within `Server Script Service`.
 
 ![image](https://user-images.githubusercontent.com/70859111/136673922-497a53b9-709a-421f-bd7b-343db5e6e15d.png)
-   
-##### Table of Contents  
-[Headers](#headers)  
-[Emphasis](#emphasis)  
-
 
 ## Table of Contents  
 [Classes](#installation)
@@ -54,13 +48,12 @@ Following the class name is a dash "`-`" proceeded by one of the following ident
 \
 *NOTE: Indentifiers share the same rules as the latter 3 module folders explained [here](###folders).*
 
-## Modules
+# Modules
 
 ### Custom Objects
 This module creates Custom Objects defined by Classes you create.
 
 #### Methods
-
 ```css
 new( instance Object, string Class, ... )
 ```
@@ -73,6 +66,7 @@ Wrap( instance Object, string Class )
 ```Returns customobject```\
 Wraps passed Object into `Custom Object`. Allows you to transform existing instances into `Custom Objects` to retain properties and explorer hierarchy.\
 <br />
+
 ```css
 Clone( customobject CustomObject )
 ```
@@ -106,11 +100,10 @@ AddSearchBank( customobject CustomObject )
 <br />
 
 
-### Events
+## Events
 This module creates Custom Objects defined by Classes you create.
 
 #### Methods
-
 ```css
 new( string ClassName )
 ```
@@ -121,7 +114,41 @@ This module incorporates stravant's *Good Signal* module. It offers a very perfo
 <br />
 <br />
 
-### Maid
+## Maid
 Maid class incorporated from Quenty's Nevermore. Read his documentation [here](https://quenty.github.io/api/classes/Maid.html).
+<br />
+<br />
+<br />
 
+## Table
+#### Methods
+```css
+new ( string Type )
+```
+```Returns table```
+| Type              | Description                           |
+|-------------------|---------------------------------------|
+| `CountedDictionary` | `#` Operator works on the returned table. Allows to easily get length of non-array. |
+<br />
+<br />
+<br />
 
+## typeof ( variable Entity )
+```Returns string```\
+This module returns a `function`. It is designed to expand on what is returned from the existing `typeof` function to allow identifying `CustomObject` and `RBXScriptConnection`.
+#### Usage
+```lua
+--Some script
+
+local require = require(game:GetService("ReplicatedStorage"):WaitForChild("Evolve"))
+
+local typeof = require("typeof") --Overwrites existing `typeof` function with our extended version.
+```
+
+<br />
+<br />
+<br />
+
+## wait ( number Time )
+```Returns number```\
+PysephDEV's custom wait module that is much faster than the existing global `wait` function. Read more [here](https://devforum.roblox.com/t/custom-wait-the-best-solution-to-yielding/715274).
