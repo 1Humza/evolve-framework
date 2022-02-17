@@ -6,13 +6,25 @@
     <Item class="Script" referent="1">
       <Properties>
         <string name="Name">EvolveLoader</string>
-        <string name="Source">local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        <string name="Source">Build = 10
+
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ReplicatedModuleFolder = Instance.new("Folder")
 ReplicatedModuleFolder.Name = "Modules"
 ReplicatedModuleFolder.Parent = ReplicatedStorage
 
 local ServerModules = game:GetService("ServerScriptService").Modules
+
+local RemoteFunction = Instance.new("RemoteFunction")
+RemoteFunction.Name = "RequestReplication"
+RemoteFunction.Parent = script
+local RemoteEvent = Instance.new("RemoteEvent")
+RemoteEvent.Name = "SendObjects"
+RemoteEvent.Parent = script
+
+script:SetAttribute("Version",Build)
 
 for _,Module in ipairs(ServerModules.Shared:GetChildren()) do Module.Parent = ReplicatedModuleFolder end
 for _,Module in ipairs(ServerModules.Client:GetChildren()) do Module.Parent = ReplicatedModuleFolder end
@@ -4455,6 +4467,31 @@ return function(Time)
 end</string>
           </Properties>
         </Item>
+      </Item>
+    </Item>
+    <Item class="Folder" referent="21">
+      <Properties>
+        <string name="Name">Modules</string>
+      </Properties>
+      <Item class="Folder" referent="22">
+        <Properties>
+          <string name="Name">Classes</string>
+        </Properties>
+      </Item>
+      <Item class="Folder" referent="23">
+        <Properties>
+          <string name="Name">Client</string>
+        </Properties>
+      </Item>
+      <Item class="Folder" referent="24">
+        <Properties>
+          <string name="Name">Server</string>
+        </Properties>
+      </Item>
+      <Item class="Folder" referent="25">
+        <Properties>
+          <string name="Name">Shared</string>
+        </Properties>
       </Item>
     </Item>
   </Item>
