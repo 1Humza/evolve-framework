@@ -1,0 +1,4461 @@
+<roblox version="4">
+  <Item class="ServerScriptService" referent="0">
+    <Properties>
+      <string name="Name">ServerScriptService</string>
+    </Properties>
+    <Item class="Script" referent="1">
+      <Properties>
+        <string name="Name">EvolveLoader</string>
+        <string name="Source">local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local ReplicatedModuleFolder = Instance.new("Folder")
+ReplicatedModuleFolder.Name = "Modules"
+ReplicatedModuleFolder.Parent = ReplicatedStorage
+
+local ServerModules = game:GetService("ServerScriptService").Modules
+
+for _,Module in ipairs(ServerModules.Shared:GetChildren()) do Module.Parent = ReplicatedModuleFolder end
+for _,Module in ipairs(ServerModules.Client:GetChildren()) do Module.Parent = ReplicatedModuleFolder end
+for _,Module in ipairs(ServerModules.Server:GetChildren()) do Module.Parent = ServerModules end
+ServerModules.Shared:Destroy()
+ServerModules.Client:Destroy()
+ServerModules.Server:Destroy()
+
+local function ReplicateDirectory(Directory)
+
+	local function CreateDirectory(Name,Parent)
+
+		local Dir = Instance.new("Folder")
+		Dir.Name = Name
+		Dir.Parent = Parent
+
+		return Dir
+	end
+	
+	local function LoadChildClasses(Directory)
+		for _,Class in ipairs(Directory:GetChildren()) do
+			if Class:FindFirstChild("ChildClasses") then
+				LoadChildClasses(Class.ChildClasses)
+			end
+			if Directory.Name == "ChildClasses" then
+
+				for _,Module in ipairs(Class:GetChildren()) do
+					if Module:IsA("ModuleScript") then
+						
+						local Suffix = Module.Name:sub(Module.Name:find(Module.Parent.Name,1,true))
+						local Ancestor = Directory
+						while Ancestor.Name ~= "Classes" do
+							if Ancestor.Parent.Name:find("Classes") then
+								local ParentModule = Ancestor:FindFirstChild(Ancestor.Name..Suffix)
+								if ParentModule then
+									for i,v in pairs(require(ParentModule)) do
+										require(Module)[i] = v
+									end
+								end
+							end
+							Ancestor = Ancestor.Parent
+						end
+					end
+				end
+
+			end
+		end
+	end
+	--LoadChildClasses(Directory)
+
+	local function ReplicateClass(Class)
+
+		local HasServerModules = Class:FindFirstChild(Class.Name..'-Server')
+		local HasClientModules = Class:FindFirstChild(Class.Name..'-Shared') or Class:FindFirstChild(Class.Name..'-Client')
+
+		--local FormattedCorrectly = HasServerModules or HasClientModules
+		
+		--if not FormattedCorrectly then return end
+		--local RemoveBrokenClass = not FormattedCorrectly and --warn("[Evolve] Class:",Class,"Empty or Module(s) incorrectly named. Will not load.",Class:Destroy())
+
+		local NewClass = CreateDirectory(Class.Name)
+		
+		local x = HasServerModules and NewClass:SetAttribute("HasServerSide",true)
+
+		for _,Child in ipairs(Class:GetChildren()) do
+			if Child:IsA("Folder") and Child.Name:find("Classes")then
+				local NewDirectory = ReplicateDirectory(Child)
+				if #NewDirectory:GetChildren() > 0 then
+					NewDirectory.Parent = NewClass
+				end
+			elseif Child:IsA("Folder") and not Child.Name:find("Classes") then
+				ReplicateClass(Child).Parent = NewClass
+			elseif HasClientModules and Child:IsA("ModuleScript") then
+				if Child.Name ~= Class.Name.."-Server" then
+					Child.Parent = NewClass
+				end
+			end
+		end
+
+		if not HasServerModules and HasClientModules then Class:Destroy() end
+
+		return NewClass
+	end
+
+	local NewDirectory = CreateDirectory(Directory.Name)
+
+	for _,Child in ipairs(Directory:GetChildren()) do
+		if Child:IsA("Folder") then
+			local NewClass = ReplicateClass(Child)
+			if NewClass then NewClass.Parent = NewDirectory end
+		elseif Child:IsA("ModuleScript") then
+			if Directory.Name:find("Classes") then
+				--warn("[Evolve] Module:",Child,"found outside of Class folder. Will not load.")
+				Child:Destroy()
+			end
+		end
+	end
+
+	return NewDirectory
+end
+
+ReplicateDirectory(ServerModules.Classes).Parent = ReplicatedModuleFolder
+
+local EvolveModule = script.Evolve
+EvolveModule.Parent = ReplicatedStorage
+
+local Binder = require(EvolveModule._binder)
+Binder.BindTags(ReplicatedModuleFolder.Classes)
+Binder.BindTags(ServerModules.Classes)
+
+require(EvolveModule)("CustomObjects")</string>
+      </Properties>
+      <Item class="ModuleScript" referent="2">
+        <Properties>
+          <string name="Name">Evolve</string>
+          <string name="Source"><![CDATA[local Evolve = setmetatable(
+	{},
+	{ __call = function(tbl,Request,IsReplicated)
+		if Request == "Libraries" then
+			return Libraries
+		elseif Request then
+			return RequestModule(Request,IsReplicated)
+		end
+	end}
+)
+
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
+
+local Classes = require(script._classes)
+
+Libraries = {script}
+Evolve.Libraries = Libraries
+
+local ClassDirs = {}
+
+function RequestModule(Request,IsReplicated)
+	
+	if typeof(Request) == "Instance" and Request:IsA("ModuleScript") then
+		return require(Request)
+	end
+	
+	for _,Lib in ipairs(Libraries) do
+		if Lib:FindFirstChild(Request) then
+			return require(Lib[Request])
+		end
+	end
+	
+	error("Module not found: "..Request,3)
+	
+end
+
+function Evolve.RequestClass(Request,IsReplicated)
+ 
+	local Class
+	local classDir
+	
+	local function FindDirectory(CurrDirectory,Directory)
+		
+		if CurrDirectory:FindFirstChild(Directory) then
+			return CurrDirectory[Directory]
+		else
+			local InternalClassTypes = {"SubClasses","ChildClasses"}
+			for _,Type in ipairs(InternalClassTypes) do
+				if CurrDirectory:FindFirstChild(Type) then
+					--print("[Evolve] Module loader found directory:",Type,Directory,CurrDirectory[Type],CurrDirectory[Type]:GetChildren(),CurrDirectory[Type]:FindFirstChild(Directory))
+					if CurrDirectory[Type]:FindFirstChild(Directory) then
+						return CurrDirectory[Type][Directory]
+					end
+				end
+			end
+		end
+		
+	end
+	
+	local Dirs = Request:split(".")
+	
+	for LibIndex,Library in ipairs(Libraries) do
+		
+		if Library:FindFirstChild("Classes") then
+			
+			classDir = Classes.GetClass(Library.Classes,Request)
+			if not classDir then continue end
+			
+			local function LoadModule(module)
+				local Module = typeof(module) == "table" and module or require(module)
+				
+				if Class == nil then Class = Module return end
+
+				local existingMtbl = getmetatable(Class)
+
+				if not existingMtbl then					
+					local mtbl = {_classes={Module}}
+					mtbl.__index = function(s,i)
+						local v = mtbl[i]
+						if v then return v end
+						for _,dir in ipairs(mtbl._classes) do
+							v = dir[i]
+							if v then return v end
+						end
+					end
+					setmetatable(Class,mtbl)
+				elseif not existingMtbl._processed then
+					table.insert(existingMtbl._classes,1,Module)
+					--print(existingMtbl._classes)
+				end
+			end
+			
+			for _,Module in ipairs(classDir:GetChildren()) do
+				if Module:IsA("ModuleScript") then
+					local Name = Module.Name
+					if RunService:IsServer() and Name:sub(#Name-5,#Name) == "Client" then continue end
+					LoadModule(Module)
+				end
+			end
+			
+			if classDir.Parent.Name == "ChildClasses" then
+
+				local Ancestor = classDir.Parent
+				while Ancestor:IsA("Folder") and Ancestor.Name ~= "SubClasses" and Ancestor.Name ~= "Classes" do
+					for _,Module in pairs(Ancestor:GetChildren()) do
+						if Module:IsA("ModuleScript") then
+							local Name = Module.Name
+							if RunService:IsServer() and Name:sub(#Name-5,#Name) == "Client" then continue end
+							LoadModule(Module)
+						end
+					end
+					Ancestor = Ancestor.Parent
+				end
+			end
+			
+			--[[local ClassPath = Library.Classes
+
+			for DirIndex,Directory in ipairs(Dirs) do
+								
+				local Error = LibIndex == #Libraries and not ClassPath and "Can't find Module: "..Request.." @ Arg:"..DirIndex
+				if Error and not IsReplicated then
+					return Error
+				elseif Error then
+					return {}
+				end
+				
+				if ClassPath then
+				
+					ClassPath = FindDirectory(ClassPath,Directory)
+					
+					if ClassPath and DirIndex == #Dirs then
+						--print("[Evolve] Module loader found class:",ClassPath,ClassPath:GetChildren())
+						if not Class and LibIndex == #Libraries and RunService:IsServer() and not (ClassPath:FindFirstChild(Directory.."-Shared")) and not (ClassPath:FindFirstChild(Directory.."-Server")) then
+							return "Server accessable Modules(Server and Shared class types) do not exist in Class: "..Request
+						end
+						
+						
+						local function LoadModule(Module)
+							
+							local Module = typeof(Module) == "table" and Module or require(Module)
+							
+							if Class == nil then Class = Module return end
+							
+							local existingMtbl = getmetatable(Class)
+							
+							if not existingMtbl then					
+								local mtbl = {_classes={}}
+								mtbl.__index = function(s,i)
+									local v = mtbl[i]
+									if v then return v end
+									for _,dir in ipairs(mtbl._classes) do
+										v = dir[i]
+										if v then return v end
+									end
+								end
+								setmetatable(Class,mtbl)
+							else
+								table.insert(existingMtbl._classes,Module)
+							end
+							
+						end
+						
+						for _,Module in ipairs(ClassPath:GetChildren()) do
+							if Module:IsA("ModuleScript") then
+								LoadModule(Module)
+							end
+						end
+						
+						if ClassPath.Parent.Name == "ChildClasses" then
+							
+							local Ancestor = ClassPath.Parent
+							while Ancestor:IsA("Folder") and Ancestor.Name ~= "SubClasses" and Ancestor.Name ~= "Classes" do
+								for _,Module in pairs(Ancestor:GetChildren()) do
+									if Module:IsA("ModuleScript") then
+										LoadModule(Module)
+									end
+								end
+								Ancestor = Ancestor.Parent
+							end
+						end
+						
+					end 
+				end
+				
+			end--]]
+		end
+	end
+	
+	assert(Class or IsReplicated, "Unable to locate class: "..Request)
+	if getmetatable(Class) then
+		getmetatable(Class)._processed = true
+	end
+	
+	--print("[Evolve] Loading class:",Request,Class,getmetatable(Class))
+		
+	return Class
+end
+
+if RunService:IsServer() then
+	ServerModules = game:GetService("ServerScriptService"):WaitForChild("Modules")
+	table.insert(Libraries,ServerModules)
+end
+
+ClientModules = ReplicatedStorage:WaitForChild("Modules")
+table.insert(Libraries,ClientModules)
+
+
+return Evolve
+]]></string>
+        </Properties>
+        <Item class="ModuleScript" referent="3">
+          <Properties>
+            <string name="Name">CustomObjects</string>
+            <string name="Source">local CO = {}
+
+local RunService = game:GetService("RunService")
+
+local require = require(game:GetService("ReplicatedStorage"):WaitForChild("Evolve"))
+
+local CollectionService = game:GetService("CollectionService")
+local Utils = script:WaitForChild("Utils")
+
+local SerializeUtil = require(Utils.Serialize)
+local UUIDUtil = require(Utils.UUID)
+local Core = require(Utils.Core)
+
+local typeof = require("typeof")
+local Events = require("Events")
+local Maid = require("Maid")
+
+CO.Added = Events.new("Signal")
+CO.Removed = Events.new("Signal")
+
+function CO.new(Class,...)
+	assert(typeof(Class)=="string", "Argument[1] is "..typeof(Class)..". String expected.")
+
+	local _ReadOnly = {
+		_ClassName = Class
+	}
+	local CustomObject = Core.NewCustomObject(_ReadOnly,{...})
+
+	assert(_ReadOnly._Obj, "Instance not returned by 'new' constructor of class "..'"'..Class..'"')
+	
+	UUIDUtil.Generate(_ReadOnly._Obj)
+	CustomObject:_init(...)
+
+	return CustomObject
+end
+
+function CO.Wrap(Data,Class,...)
+
+	local IsSerialized = typeof(Data) == "SerializedCustomObject" or typeof(Data) == "SerializedCustomObjectList"
+
+	assert(Data and (typeof(Data) == "Instance" or IsSerialized), "Attempt to call Wrap on "..typeof(Data)..". Expected Instance.")
+
+	local UUID = (not IsSerialized) and (Data:GetAttribute("UUID") or UUIDUtil.Generate(Data))or (IsSerialized and Data.UUID)
+		
+	local cachedValue = Core.loaded_cache[UUID]
+	if (typeof(cachedValue) == "CustomObject") or ((not Class) and (not IsSerialized)) then
+		assert(cachedValue, "CustomObject "..tostring(cachedValue).." does not exist or `Initialize` function is still running.")
+		return cachedValue
+	end
+	
+	local CustomObject
+
+	if IsSerialized then
+
+		CustomObject = SerializeUtil.Decode(Data,Class)
+
+	else
+
+		local _ReadOnly = {}
+		_ReadOnly._Obj = Data
+		_ReadOnly._UUID = UUID
+		_ReadOnly._ClassName = Class
+
+		CustomObject = Core.NewCustomObject(_ReadOnly,{...})
+	end
+
+	--warn("[Evolve] Calling _init: ",CustomObject._ClassName,CustomObject)
+	
+	CustomObject:_init(...)
+	
+	return CustomObject
+end
+
+function CO.Await(arg)
+	--print("[Evolve] Awaiting CustomObject:",arg)
+	local waitingInit = Core.awaiting_cache
+	local UUID = (typeof(arg) == "number" and arg) or (arg:GetAttribute("UUID") or UUIDUtil.Generate(arg))
+	if Core.loaded_cache[UUID] then return Core.loaded_cache[UUID] end
+	
+	if waitingInit[UUID] then
+		local i = 2
+		local trace = {debug.info(coroutine.running(),i,"sn")}
+		while #trace>0 do
+			if trace[1]:find(waitingInit[UUID]:GetClassName().."%-") and trace[2]:find("Initialize") or trace[2]:find("new") then
+				error("Infinite yield caused by calling Await function within `Initialize` function of same class.",i)
+			end
+			i+=1
+			trace = {debug.info(coroutine.running(),i,"sn")}
+		end--]]
+	end
+	
+	waitingInit[UUID] = waitingInit[UUID] or Events.new("Signal")
+	return Core.loaded_cache[UUID] or typeof(waitingInit[UUID]) == "Signal" and waitingInit[UUID]:Wait()
+		or typeof(waitingInit[UUID]) == "CustomObject" and waitingInit[UUID]._ReadOnly._Loaded:Wait()
+end
+
+local function DoInit(Target,...)
+	if Target._Class.Initialize then
+		Target._Class.Initialize(Target,Target._ReadOnly._ShownMaid,...)
+	end
+end
+function CO._init(CustomObject,...)
+	
+	if not CustomObject:GetObject() then return end
+
+	local UUID = CustomObject:GetUUID()
+	local Obj = CustomObject:GetObject()
+
+	local _ReadOnly = CustomObject._ReadOnly
+
+	_ReadOnly._DestroyedConn = Obj:GetPropertyChangedSignal("Parent"):Connect(function()end)
+
+	Core.awaiting_cache[UUID] = CustomObject
+
+	local Init = _ReadOnly._AutoInit and DoInit(CustomObject,...)
+	local Replicate = RunService:IsServer() and Core.IsReplicable(CustomObject) and script.SendObjects:FireAllClients(UUID,SerializeUtil.Encode(CustomObject))
+
+	Core.loaded_cache[UUID] = CustomObject
+
+	CollectionService:AddTag(Obj,"_CustomObject")
+
+	Core.awaiting_cache[UUID] = nil
+	local FireLoadedEvent = CustomObject._Loaded and CustomObject._Loaded:Fire(CustomObject)
+	CustomObject._ReadOnly._Loaded = nil
+
+	CO.Added:Fire(CustomObject)
+
+	return CustomObject
+	
+end
+
+function CO:Initialize()
+	local NewRan = self._ReadOnly._NewRan
+	self._ReadOnly._AutoInit = ((not NewRan) and true) or nil --defer init until object is loaded(called from .new())
+	local yieldTilLoad = NewRan and self._Loaded and self._Loaded:Wait()
+	local doInit = NewRan and DoInit(self) --only actually do it if it's not coming from .new()
+end
+
+function CO:Destroy()
+	local _ReadOnly = self._ReadOnly
+
+	Core.loaded_cache[self:GetUUID()] = nil
+	Core.unloaded_cache[self:GetUUID()] = nil
+
+	_ReadOnly._Obj:Destroy()
+
+	local CleanUp = self._Properties._CleanUp and self._Properties:_CleanUp()
+	_ReadOnly._ShownMaid:DoCleaning()
+
+	SerializeUtil.serialized_cache[_ReadOnly._Obj] = nil
+	SerializeUtil.serialized_changes[self] = nil
+	
+	local fireRemoved = RunService:IsClient() and CO.Removed:Fire(self)
+	--print('[Evolve] Destroy() called on:',self)
+	--local ReplicateDestruction = RunService:IsServer() and script.SendObjects:FireAllClients(self:GetUUID(),_ReadOnly._Obj,"_DESTROY")
+end
+
+function CO:GetObject()
+	return self._ReadOnly._Obj
+end
+
+function CO:GetClassName()
+	return self._ReadOnly._ClassName
+end
+
+function CO:GetUUID()
+	return self._ReadOnly._UUID
+end
+
+--CO.Await = LoadUtil.Await
+
+function CO:GetPropertyChangedSignal(property)
+	local hasProperty,value = Core.CheckIfHasProperty(self:GetObject(),property)
+	if hasProperty then return self:GetObject():GetPropertyChangedSignal(property) end
+	
+	local _ReadOnly = self._ReadOnly
+	_ReadOnly._PropertyChangedSignals = _ReadOnly._PropertyChangedSignals or {}
+
+	local Signal = _ReadOnly._PropertyChangedSignals[property] or Events.new("Signal")
+	_ReadOnly._PropertyChangedSignals[property] = Signal
+	
+	return Signal
+end
+
+function CO:AddSearchBank(Additional,Original)
+	local Original = Original or self
+	local _ReadOnly = rawget(self,"_ReadOnly")
+	_ReadOnly._SearchBanks = _ReadOnly._SearchBanks or {}
+	_ReadOnly._SearchBanks[Original] = Additional
+end
+
+function CO:__index(i)
+	local SB = self._ReadOnly._SearchBanks
+	if SB and ((SB[i] and SB[i][i]) or (SB[self] and SB[self][i])) then
+		return (SB[i] and SB[i][i]) or (SB[self] and SB[self][i])
+	elseif self._Properties[i] ~= nil then
+		local Value = self._Properties[i]
+		if typeof(Value) == "SerializedInstance" then
+			return self._Properties[i].Instance
+		elseif typeof(Value) == "CustomObject" and Value._ReadOnly._UnloadedReference then
+			return nil
+		end
+
+		return Value
+	elseif CO[i] ~= nil then
+		return CO[i]
+	elseif self._Class[i] ~= nil then
+		return self._Class[i]
+	elseif self._ReadOnly[i] ~= nil then
+		return self._ReadOnly[i]
+	else
+		local ObjHasProperty, ObjProperty = Core.CheckIfHasProperty(self._ReadOnly._Obj,i,true)
+
+		if type(ObjProperty) == "function" then
+			if i:lower() == "destroy" or i:lower() == "remove" then
+				self:Destroy()
+			end
+			local ChangeSelfArgAndRun = function(...)
+				local args = {...}
+				args[1] = self._ReadOnly._Obj
+				return ObjProperty(unpack(args))
+			end
+
+			return ChangeSelfArgAndRun
+		end
+		return (ObjHasProperty and ObjProperty) or nil
+
+	end
+end
+
+--[[function CO:__tostring()
+	return tostring(self:GetObject())
+end]]
+
+function CO:__newindex(i,v)
+	local _ReadOnly = self._ReadOnly
+	local ObjHasProperty, ObjProperty = Core.CheckIfHasProperty(_ReadOnly._Obj,i,false)
+	if ObjHasProperty then
+		_ReadOnly._Obj[i] = v
+	else
+		assert(CO[i]==nil and _ReadOnly[i]==nil,"Unable to overwrite ReadOnly property: "..tostring(i))
+		local v = (typeof(v) == "table" and Core.NewNestedPropertyTable(self,v,{i})) or v
+		UUIDUtil.Generate(v)
+		SerializeUtil.ReplicateChange(self,i,v)
+		self._Properties[i] = v
+	end
+	local FireChangedSignal = _ReadOnly._PropertyChangedSignals and _ReadOnly._PropertyChangedSignals[i] and _ReadOnly._PropertyChangedSignals[i]:Fire(v)
+	local AwaitFunc = rawget(self,"_await_"..tostring(i)) and rawget(self,"_await_"..tostring(i))()
+end
+
+function CO:Clone(AlreadyCloned)
+
+	local function FindClone(Original)
+		local UUID = Original:GetAttribute("UUID")
+		for _,Object in ipairs(game:GetService("CollectionService"):GetTagged("_UUID_"..UUID)) do
+			if Object ~= Original then
+				return Object
+			end
+		end
+		return nil
+	end
+
+	local Object = self:GetObject()
+
+	local NewObject = (not AlreadyCloned and Object:Clone()) or Object
+	local UUID = UUIDUtil.Generate(NewObject,true)
+	local NewCO = Core.NewCustomObject({
+		_Obj = NewObject,
+		_UUID = UUID,
+		_ClassName = self:GetClassName()
+	})
+	Core.loaded_cache[UUID] = NewCO
+
+	local function ExtractProperties(Properties)
+		local Cache = {}
+		for i,Property in pairs(Properties) do
+			if typeof(Property) == "CustomObject" and Property:GetObject():IsDescendantOf(Object) then
+
+				local ClonedObject = FindClone(Property:GetObject())
+				UUIDUtil.Generate(ClonedObject)
+				Cache[i] = Property:Clone(true)
+
+			elseif typeof(Property) == "SerializedInstance" and Property.Instance:IsDescendantOf(Object) then
+
+				local ClonedObject = FindClone(Object)
+				UUIDUtil.Generate(ClonedObject)
+				Cache[i] = Core.FormatObj(ClonedObject)
+
+			elseif typeof(Property) == "table" then
+				Cache[i] = ExtractProperties(Property)
+			else
+				Cache[i] = Property
+			end
+		end
+		return Cache
+	end
+	NewCO._Properties = ExtractProperties(self._Properties)
+	NewCO:_init()
+
+	local Replicate = RunService:IsServer() and Core.IsReplicable(NewCO) and script.SendObjects:FireAllClients(UUID,SerializeUtil.Encode(NewCO))
+
+	local Trace = debug.traceback()
+	if (Trace:find('function Initialize')) then
+		error("Infinite operation due to 'Clone' called in initialization function. Try cloning the Instance by calling 'GetObject' on the Custom Object.")
+	end
+
+	return NewCO
+end
+
+
+if game:GetService("RunService"):IsServer() then
+	script.RequestReplication.OnServerInvoke = function(player,UUID)
+		--print("[Evolve] Recieved replication request from client",player,"for UUID:",UUID,Core.loaded_cache[UUID])
+		return SerializeUtil.Encode(Core.loaded_cache[UUID])
+	end
+	
+	local function PlayerAdded(Player)
+		script["Custom Objects Replicator"]:Clone().Parent = Player.PlayerGui
+	end
+	game.Players.PlayerAdded:Connect(PlayerAdded)
+	for _,Player in pairs(game.Players:GetPlayers()) do
+		PlayerAdded(Player)
+	end
+
+	require(Utils.Load).DescendantAddedToReplicatedDirectory:Connect(function(Descendant)
+
+		local UUID = Descendant:GetAttribute("UUID")
+		local CustomObject = UUID and Core.loaded_cache[UUID]
+
+		if not CustomObject then return end
+
+		local function VerifyIndexes(tbl)
+			for i,v in pairs(tbl) do
+				assert(typeof(i) =="number" or typeof(i)=="string","CustomObject: ".."'"..tostring(CustomObject).."'".." Class: ".."'"..CustomObject:GetClassName().."'".." Error: Expected index type number or type string(unable to replicate other index value types) when indexing properties. Got type: "..typeof(i))
+				local recurse = typeof(v) == "table" and VerifyIndexes(v)	
+			end
+		end
+		VerifyIndexes(rawget(CustomObject,"_Properties"))
+
+		local EncodedCO = SerializeUtil.serialized_changes[CustomObject] or SerializeUtil.Encode(CustomObject)
+		script.SendObjects:FireAllClients(UUID,EncodedCO)
+	end)
+
+	--UUIDUtil.InitialGenerate()
+end
+
+return CO</string>
+          </Properties>
+          <Item class="LocalScript" referent="4">
+            <Properties>
+              <string name="Name">Custom Objects Replicator</string>
+              <string name="Source">local require = require(game:GetService("ReplicatedStorage"):WaitForChild("Evolve"))
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
+
+local EvolveModule = ReplicatedStorage.Evolve
+local CustomObjectsModule = EvolveModule.CustomObjects
+
+local CustomObject = require(CustomObjectsModule)
+local Core = require(CustomObjectsModule.Utils.Core)
+local UUIDUtil = require(CustomObjectsModule.Utils.UUID)
+local Serialize = require(CustomObjectsModule.Utils.Serialize)
+local Replicator = require(CustomObjectsModule.Utils.Replicator)
+
+local typeof = require("typeof")
+local Events = require("Events")
+local _classes = require("_classes")
+
+local Binder = require(EvolveModule._binder)
+Binder.BindTags(ReplicatedStorage:WaitForChild("Modules").Classes)
+
+function GetUUIDFromCO(instance)
+	if not CollectionService:HasTag(instance,"_CustomObject") then return end
+	for _,tag in ipairs(CollectionService:GetTags(instance)) do
+		if tag:sub(1,6) == "_UUID_" then
+			return tonumber(tag:sub(7,#tag))
+		end
+	end
+end
+
+function ProcessInstance(instance)
+	local Success,UUID
+	
+	UUID = GetUUIDFromCO(instance)
+	if not UUID then return end
+	
+	local CheckClone = UUID&lt;0 and UUIDUtil.Generate(instance) --if is a clone of instance (made on client) with UUID this will give it new one
+	if CheckClone then return end
+	
+	--print("[Evolve] New Instance with UUID added:",instance,Core.loaded_cache[UUID],Serialize.Decode_Queue[UUID],Core.unloaded_cache[UUID])
+	if Core.loaded_cache[UUID] or Serialize.Decode_Queue[UUID] then return end
+	
+	local unloaded_CO = Core.unloaded_cache[UUID]
+	if unloaded_CO then
+		--print("[Evolve] Reloading unloaded CustomObject:", unloaded_CO)
+		unloaded_CO._ReadOnly._Obj = instance
+		Core.unloaded_cache[UUID] = nil
+		Core.loaded_cache[UUID] = unloaded_CO
+		unloaded_CO:_init()
+		return
+	end
+	
+	for _,tag in pairs(CollectionService:GetTags(instance)) do --Only ask sever to replicate if it has serverside
+		if tag:sub(1,6) == "Class." then
+			local class = _classes.GetClass(ReplicatedStorage.Modules.Classes,tag:gsub("Class.",""))
+			if not (class and class:GetAttribute("HasServerSide")) then
+				return--if no serverside then return
+			end
+		end
+	end
+	
+	Replicator.Load(UUID)
+
+end
+
+CollectionService:GetInstanceAddedSignal("_CustomObject"):Connect(ProcessInstance)
+
+
+
+
+
+CollectionService:GetInstanceRemovedSignal("_CustomObject"):Connect(function(Descendant)
+	
+	local Success,UUID = pcall(function() return Descendant:GetAttribute("UUID") end)
+	if not (Success and UUID) then return end
+	
+	local customObject = Core.loaded_cache[UUID]
+	--warn(Descendant,typeof(customObject), 'Removed.',customObject,Core.unloaded_cache)
+	
+	local isLoading = (not customObject) and Replicator.Requests[UUID] or Replicator.Queue[UUID]
+	
+	local function CleanUp(customObject)
+		local Loaded = customObject._Loaded and customObject._Loaded:Wait()
+
+		Core.loaded_cache[UUID] = nil
+		Core.unloaded_cache[UUID] = customObject
+		customObject._ReadOnly._ShownMaid:DoCleaning()
+		CustomObject.Removed:Fire(customObject)
+		customObject = nil
+		Descendant = nil
+		task.spawn(function()
+			while Core.unloaded_cache[UUID] do
+				wait(1)
+				--print(Core.unloaded_cache,Core.loaded_cache,Replicator.Requests[UUID],Replicator.Queue[UUID],Serialize.Decode_Queue)
+			end
+		end)
+	end
+	
+	if customObject then
+		CleanUp(customObject)
+	elseif isLoading then
+		local conn
+		conn = CustomObject.Added:Connect(function(customObject)
+			if customObject:GetUUID() == UUID then
+				conn:Disconnect()
+				CleanUp(customObject)
+			end
+		end)
+	end
+
+end)
+
+
+
+
+
+
+for _,instance in pairs(game:GetDescendants()) do
+	task.spawn(ProcessInstance,instance)
+end</string>
+            </Properties>
+          </Item>
+          <Item class="Folder" referent="5">
+            <Properties>
+              <string name="Name">Utils</string>
+            </Properties>
+            <Item class="ModuleScript" referent="6">
+              <Properties>
+                <string name="Name">Core</string>
+                <string name="Source"><![CDATA[local Core = {}
+
+local RunService = game:GetService("RunService")
+
+
+local require = require(game:GetService("ReplicatedStorage"):WaitForChild("Evolve"))
+
+local UUIDUtil = require(script.Parent.UUID)
+local Events = require("Events")
+local typeof = require("typeof")
+local Table = require("Table")
+local Maid = require("Maid")
+
+
+
+Core.unloaded_cache = (RunService:IsClient() and setmetatable({},{__mode="v"})) or nil
+Core.loaded_cache = {}
+Core.awaiting_cache = setmetatable({},{__mode="v"})
+
+
+
+
+function Core.CheckIfHasProperty(Item,Property,CanBeChild)
+	if not Item then return false, nil end
+	local success, response = pcall(function()
+		return Item[Property]
+	end)
+	if CanBeChild == false and Item:FindFirstChild(Property) then return false, nil end
+	return success, response
+end
+
+
+
+function Core.IsReplicable(Obj)
+	local Obj = typeof(Obj) == "Instance" and Obj or typeof(Obj) == "CustomObject" and Obj:GetObject()
+	return Obj and not(Obj:IsDescendantOf(game:GetService("ReplicatedFirst")) and Obj:IsDescendantOf(game:GetService("NetworkServer")) and Obj:IsDescendantOf(game:GetService("ServerScriptService")) and Obj:IsDescendantOf(game:GetService("ServerStorage"))) or not Obj and false
+end
+
+
+
+function Core.FormatObj(v)
+	if not v:GetAttribute("UUID")  then
+		v:GetAttributeChangedSignal("UUID"):wait()
+	end
+	return {['Instance']=v,['UUID']=v:GetAttribute("UUID") }
+end
+
+
+
+function Core.NewNestedPropertyTable(CustomObject,displayTable,path) --Client table will keep track of streamables in table as come in/out & replication signals on change
+
+	local Load = require(script.Parent.Load)
+
+	local metaTable = {}--Behind the display, handles requests
+
+	metaTable._path = path
+	metaTable._root = CustomObject
+
+	metaTable._displayTable = {}--Table.new("Streaming")
+
+	metaTable.__newindex = function(self,i,v)
+		local ReplicatedServerObject = RunService:IsServer() and Core.IsReplicable(CustomObject)
+
+		if ReplicatedServerObject then --Only apply index restrictions for replicable entities
+			assert(typeof(i) == "string" or typeof(i) == "number", "Invalid Key type "..typeof(i)..". Expected string or number.")
+		end
+
+
+		local newPath = typeof(v) == "table" and not getmetatable(v) and {unpack(metaTable._path)}
+		local addNewDirToPath = newPath and table.insert(newPath,i)
+		rawset(self,i,(newPath and Core.NewNestedPropertyTable(CustomObject,v,newPath)) or v)
+
+
+		if ReplicatedServerObject and self[i] ~= v then
+			local newPath = {["_path"]=true}
+			for i, v in pairs(metaTable._path) do
+				newPath[tostring(i)]=v --Change number indices to string for sending through remote events
+			end
+			newPath[tostring(#newPath+1)]=i
+			require(script.Parent.Serialize).ReplicateChange(CustomObject,newPath,v)
+		end
+
+		local PassToAwait = metaTable.__newIndexPassThru and metaTable.__newIndexPassThru(self,i,v)
+	end
+
+	metaTable.__index = function(self,i,v)
+		local Value = rawget(self,i)
+		if typeof(Value) == "SerializedInstance" then
+			return Value.Instance
+		end
+	end
+
+	setmetatable(displayTable,metaTable)
+
+	if displayTable then
+		for i,v in pairs(displayTable) do
+			rawset(displayTable,i,nil)
+			if (i=="_root"or i=="_path") then continue end-- ignore serialized tags
+			displayTable[i]= v--invoke __newindex to process original table
+		end
+	end
+
+	return displayTable
+end
+
+
+
+function Core.NewCustomObject(_ReadOnly,IsReplicated)
+
+	local ClassName = _ReadOnly._ClassName
+	local args = (typeof(IsReplicated) == "table" and IsReplicated) or {}
+	if args then IsReplicated = nil end
+
+	local Response = require.RequestClass(ClassName,IsReplicated)
+
+	local NewCO = setmetatable({
+		_Properties = {},
+		_ReadOnly = _ReadOnly,
+		_Class = (typeof(Response) == "string" and error(Response)) or ((typeof(Response) == "table" and Response) or (IsReplicated and {}) or error("Cannot find Class: "..ClassName,2)),
+	},require("CustomObjects"))
+
+	_ReadOnly._ShownMaid = Maid.new()
+
+	local Constructor = NewCO._Class.new
+	if IsReplicated and not Constructor then
+		_ReadOnly._NewRan = true
+		return NewCO
+	end
+
+	assert(Constructor,'Cannot create new object of Class "'..ClassName..'"'.."; 'new' constructor not found.")
+	local newObj = Constructor(NewCO,unpack(args))
+	
+	_ReadOnly._Obj = _ReadOnly._Obj or newObj
+	_ReadOnly._UUID = _ReadOnly._UUID or _ReadOnly._Obj:GetAttribute("UUID") or UUIDUtil.Generate(_ReadOnly._Obj)
+	_ReadOnly._Loaded = Core.awaiting_cache[_ReadOnly._UUID] or Events.new("Signal")
+	
+	local mtbl = getmetatable(NewCO._Class)
+	if mtbl then
+		local superclasses = mtbl._classes
+		for _,superclass in ipairs(superclasses) do--new
+			superclass.new(NewCO,unpack(args))
+		end
+		for _,superclass in ipairs(superclasses) do--Initialize
+			if not NewCO._ReadOnly._AutoInit then continue end
+			superclass.Initialize(NewCO,_ReadOnly._ShownMaid)
+		end
+		local con
+		con = _ReadOnly._Loaded:Connect(function()
+			con:Disconnect()
+			for i,superclass in ipairs(superclasses) do--Start
+				if superclass.Start then
+					superclass.Start(NewCO,_ReadOnly._ShownMaid)
+				end
+			end
+		end)
+
+	end
+
+	_ReadOnly._NewRan = true
+
+	return NewCO
+
+end
+
+return Core
+]]></string>
+              </Properties>
+            </Item>
+            <Item class="ModuleScript" referent="7">
+              <Properties>
+                <string name="Name">Load</string>
+                <string name="Source">local LoadUtil = {}
+
+local require = require(game:GetService("ReplicatedStorage"):WaitForChild("Evolve"))
+
+local Core = require(script.Parent.Core)
+local UUIDUtil = require(script.Parent.UUID)
+
+local typeof = require("typeof")
+local Events = require("Events")
+
+local Awaits = {}
+function LoadUtil.Await(CustomObject,Index)
+	local PropertyAdded = Awaits[CustomObject:GetUUID()..Index] or Events.new("Signal")
+	local ObjHasProperty,ObjPropertyValue = Core.CheckIfHasProperty(CustomObject:GetObject(),Index)
+	--print('[Evolve] awaiting', Index, ObjHasProperty,ObjPropertyValue, CustomObject[Index],CustomObject,typeof(CustomObject[Index]))
+	--print(debug.traceback())
+	
+	local Value = CustomObject[Index]
+
+	if typeof(Value) == "SerializedCustomObject" then
+		
+		local stored_tbl = Core.unloaded_cache[Value._Obj.UUID]
+		
+		--print(Index,'Waiting',getmetatable(Value),Value._Obj,Core.unloaded_cache)
+		rawset(stored_tbl,"__Loaded",coroutine.wrap(function()
+			--print('[Evolve] Loaded FUnc Fired')
+			PropertyAdded:Fire()
+		end))
+	--elseif typeof(rawget(CustomObject,"_Properties")[Index]) == "SerializedInstance" then
+	--[[elseif typeof(Value) == "NestedPropertyTable" then
+		local metaTable = getmetatable(Value)
+		--print(#metaTable._unloadedTable,#Value)
+		if #metaTable._unloadedTable > #Value then
+			metaTable.__newIndexPassThru = metaTable.__newIndexPassThru or function(self,i,v)
+				local checkifTableFullyLoaded =  #metaTable._unloadedTable == #Value and PropertyAdded:Fire()
+			end
+		else
+			return Value
+		end--]]
+	elseif Value then
+		return Value
+	elseif ObjHasProperty and ObjPropertyValue then
+		return ObjPropertyValue
+	elseif ObjHasProperty then
+		local PropertyChangeConnection
+		PropertyChangeConnection = CustomObject:GetObject():GetPropertyChangedSignal(Index):Connect(function()
+			PropertyAdded:Fire()
+			PropertyChangeConnection:Disconnect()
+		end)
+	else
+		rawset(CustomObject,"_await_"..Index,coroutine.wrap(function(i,v)
+			--print(i,v)
+			PropertyAdded:Fire()
+		end))
+	end
+	
+	Awaits[CustomObject:GetUUID()..Index] = PropertyAdded
+	PropertyAdded:Wait()
+	Awaits[CustomObject:GetUUID()..Index] = nil
+	
+	--print('[Evolve] wait complete',Index)
+	return CustomObject[Index]
+end
+
+--[[LoadUtil.TrackedInstances = setmetatable({},{__newindex=function(s,i,v)
+	if typeof(v)=="table" then
+		v[3]=TrackDestroy(game:GetService("CollectionService"):GetTagged("_UUID_"..i)[1])
+	end
+	rawset(s,i,v)
+end})]]
+LoadUtil.DescendantAddedToReplicatedDirectory = Events.new("Signal")
+
+local RunService = game:GetService("RunService")
+
+if RunService:IsServer() then
+	
+	game.DescendantAdded:Connect(function(Descendant)
+
+		local Success,UUID = pcall(function() return Descendant:GetAttribute("UUID") end)
+		if not (Success and UUID) then return end
+		
+		UUIDUtil.Generate(Descendant) --if is a clone of instance with UUID this will give it new one
+		local Replicate = Core.IsReplicable(Descendant) and LoadUtil.DescendantAddedToReplicatedDirectory:Fire(Descendant)
+		
+	end)
+	
+	game.DescendantRemoving:Connect(function(Descendant)
+		
+		local Success,UUID = pcall(function() return Descendant:GetAttribute("UUID") end)
+		if not (Success and UUID) then return end
+		
+		local Object = Core.loaded_cache[UUID]
+		if not Object then return end
+		
+		RunService.Heartbeat:Wait()--Make sure destroy conneciton will register
+
+		local Destroy = (not Object._ReadOnly._DestroyedConn.Connected) and Object:Destroy()
+		
+	end)
+
+elseif RunService:IsClient() then
+	
+
+end
+
+
+return LoadUtil</string>
+              </Properties>
+            </Item>
+            <Item class="ModuleScript" referent="8">
+              <Properties>
+                <string name="Name">Replicator</string>
+                <string name="Source">local Replicator = {}
+
+local require = require(game:GetService("ReplicatedStorage"):WaitForChild("Evolve"))
+
+local CustomObjectsModule = game.ReplicatedStorage.Evolve.CustomObjects
+
+local CustomObjects = require(CustomObjectsModule)
+local Core = require(CustomObjectsModule.Utils.Core)
+local SerializeUtil = require(CustomObjectsModule.Utils.Serialize)
+
+local Promise = require("Promise")
+local typeof = require("typeof")
+local Events = require("Events")
+
+function manageThread(s,i,v)
+	
+	local mtbl = getmetatable(s)
+	local thread = mtbl._thread
+	
+	rawset(s,i,v)
+	--warn("[Evolve] Added to replication queue",i,v)
+
+	local threadDead = (not thread) or coroutine.status(thread)=="dead"
+	if not threadDead then return end
+
+	mtbl._thread = coroutine.create(function()
+		--warn("[Evolve] Starting replication queue processing",s)
+		ProcessData(s)
+	end)
+	task.spawn(mtbl._thread)
+	
+end
+
+local Queue = setmetatable({},{
+	_thread = nil,
+	__newindex = function(s,i,v)
+		manageThread(s,i,v)
+	end,
+})
+Replicator.Queue = Queue
+
+local Requests = {}
+Replicator.Requests = Requests
+
+
+function ProcessData(Queue)	
+	
+	local processed = {}
+	
+	local queueIndex, args = next(Queue)
+	
+	while args ~= nil do
+		--table.remove(Queue,queueIndex)
+		
+		local Obj,ClassName,i,v = unpack(args)
+		
+		--warn("[Evolve] Processing replication data:",Obj,typeof(Obj),ClassName,Queue,i,v)
+
+		if typeof(Obj) == "SerializedInstance" then
+			local Item = Core.loaded_cache[Obj.UUID] or CustomObjects.Wrap({_Obj = Obj,_ClassName = ClassName})
+			if typeof(v) == "SerializedCustomObject" then
+				--print('[Evolve] Recieved CustomObject data. Wrapping..', v)
+				Item[i] = CustomObjects.Wrap(v)
+			elseif typeof(v) == "SerializedNestedPropertyTable" then
+				SerializeUtil.SetNestedTableValue(Item,v._path,Core.NewNestedPropertyTable(Item,v,v._path))			
+			elseif typeof(i) == "NestedPropertyPath" then
+				--print('[Evolve] Updating nested table value:',Item,i,v)
+				SerializeUtil.SetNestedTableValue(Item,i,v)
+			elseif typeof(v) == "table" or typeof(v) == "SerializedInstance" then
+				--print('[Evolve] Recieved table. Attemping to decode:',Item,i,v)
+				Item[i] = SerializeUtil.Decode(v)
+			else
+				--print('[Evolve] Replicating property change:',Item,i,v)
+				Item[i] = v
+			end
+
+			--print(Item,i,v)
+		elseif typeof(Obj) == "SerializedCustomObject" then
+			--print('[Evolve] Recieved SerializedCustomObject. Wrapping..',Obj)
+			CustomObjects.Wrap(Obj)
+		elseif Obj and typeof(ClassName) == "number" and i == "_DESTROY" then
+			--print('[Evolve] Recieved _DESTROY signal from server:',Obj,Core.loaded_cache)
+		end
+		
+		Queue[queueIndex] = nil
+		queueIndex, args = next(Queue)
+	end
+	
+end
+
+
+CustomObjectsModule.SendObjects.OnClientEvent:Connect(function(UUID,Obj,ClassName,i,v)
+	
+	if not Core.loaded_cache[UUID] then return end
+
+	Queue[UUID] = {Obj,ClassName,i,v}
+
+end)
+
+function RequestData(UUID)
+	Requests[UUID] = Promise.new(function(resolve)
+		resolve(CustomObjectsModule.RequestReplication:InvokeServer(UUID))
+	end)
+	return Requests[UUID]
+end
+
+function Replicator.Load(UUID)
+	
+	if Requests[UUID] then return end 
+	
+	--print('[Evolve] Requesting server info for UUID:',UUID)
+	
+	Requests[UUID] = RequestData(UUID)
+	local value = Requests[UUID]:expect()
+	
+	if Requests[UUID] ~= "InstantLoad" then --would be if InstantLoad runs before
+		Queue[UUID] = {value}
+		Requests[UUID] = nil
+	end
+	
+end
+
+
+function Replicator.InstantLoad(UUID)
+	
+	--print('[Evolve] Instant load requested:',UUID)
+	local serializedCustomObject
+	
+	if Queue[UUID] then
+		serializedCustomObject = unpack(Queue[UUID])
+		Queue[UUID]=nil
+		--print('[Evolve] Instant load extracted data from Queue:',UUID,Queue)
+	else
+		local request = Requests[UUID]
+		if not request then
+			request = RequestData(UUID)
+		end
+		Requests[UUID] = "InstantLoad"
+		serializedCustomObject = request:expect()
+	end
+		
+	local LoadedCO = CustomObjects.Wrap(serializedCustomObject)
+	
+	Requests[UUID] = nil
+	
+	return LoadedCO
+	
+end
+
+return Replicator</string>
+              </Properties>
+            </Item>
+            <Item class="ModuleScript" referent="9">
+              <Properties>
+                <string name="Name">Serialize</string>
+                <string name="Source">local Util = {}
+
+local require = require(game:GetService("ReplicatedStorage"):WaitForChild("Evolve"))
+
+local typeof = require("typeof")
+
+local UUIDUtil = require(script.Parent.UUID)
+local Core = require(script.Parent.Core)
+local Streamable = require("Streamable")
+
+Util.serialized_cache = {}
+local serialized_cache = Util.serialized_cache
+
+Util.serialized_changes = {}
+
+local function Serialize(PropertyTbl)
+
+	local SerializedProperties = {}
+
+	for i,v in pairs(PropertyTbl) do
+
+		if typeof(v) == "CustomObject" then
+			SerializedProperties[i] = {_Obj = Core.FormatObj(v:GetObject()),_ClassName = v:GetClassName()}
+		elseif typeof(v) == "table" then
+			SerializedProperties[i] = Serialize(v)
+		elseif typeof(v) == "NestedPropertyTable" then
+			--warn("[Evolve] Serializing..Found NestedPropertyTable!",i,v)
+			local SerializedTable = Serialize(v)
+			for i,v in pairs(SerializedTable) do
+				SerializedTable[i]=nil
+				SerializedTable[tostring(i)] = v--avoid mixed tables
+			end
+			SerializedTable._path = getmetatable(v)._path
+			SerializedTable._root = unpack(Serialize({getmetatable(v)._root}))
+			SerializedProperties[i] = SerializedTable
+		elseif typeof(v) == "Instance" then
+			local GenerateUUID = UUIDUtil.Generate(v)
+			SerializedProperties[i] = Core.FormatObj(v)
+		else
+			SerializedProperties[i] = v
+		end
+
+	end
+	return SerializedProperties
+end
+
+function Util.Encode(CustomObject)
+	
+	local SerializedObj = {}
+	local _ReadOnly = rawget(CustomObject,"_ReadOnly")
+	local Obj = _ReadOnly._Obj
+
+	if not serialized_cache[Obj] then
+
+		SerializedObj = Serialize(rawget(CustomObject,"_Properties"))
+		SerializedObj['_Obj'] = Core.FormatObj(Obj)
+		SerializedObj['_ClassName'] = _ReadOnly._ClassName
+		
+		--print('[Evolve] Creating new Serialization cache entry:',Obj,SerializedObj)
+		serialized_cache[Obj] = SerializedObj
+	else
+		--print('[Evolve] Existing encoded cache exists. Returning that instead.')
+		SerializedObj = serialized_cache[Obj]
+	end
+	
+	return SerializedObj
+end
+
+local function MakeNewCustomObject(Data,newData)
+	local loaded_cache = Core.loaded_cache
+	
+	local _ReadOnly = {}
+	_ReadOnly._Obj = Data._Obj.Instance
+	_ReadOnly._UUID = Data._Obj.UUID
+	_ReadOnly._ClassName = Data._ClassName
+	_ReadOnly._UnloadedReference = ((not newData) and true) or nil
+	local NewCO = Core.NewCustomObject(_ReadOnly,true)
+	
+	--warn("[Evolve] Making new CustomObject:",Data,Data._Obj.Instance)
+
+	return NewCO
+end
+
+Util.Decode_Queue = {}
+local Decode_Queue = Util.Decode_Queue
+
+function Util.Decode(Data,dataSet)
+	--print("[Evolve] Request to decode recieved:",Data,dataSet)
+	
+	local Replicator = require(script.Parent.Replicator)
+
+	local unloaded_cache = Core.unloaded_cache
+	local loaded_cache = Core.loaded_cache
+
+	local function Process(Data,newData)
+		--print("[Evolve] Decoding data:",typeof(Data),Data)
+
+		local target_tbl = {}
+
+		if typeof(Data) == "SerializedCustomObject" then
+			
+			local UUID = Data._Obj.UUID
+			
+			--print("[Evolve] Loading SerializedCustomObject..",Data,UUID,loaded_cache[UUID],Decode_Queue[UUID],unloaded_cache[UUID])
+			local cachedCustomObject = loaded_cache[UUID] or unloaded_cache[UUID] or Decode_Queue[UUID]
+			
+			target_tbl = cachedCustomObject or MakeNewCustomObject(Data,newData)
+			Decode_Queue[UUID] = target_tbl
+			--warn("[Evolve] Added", UUID, "to decode queue.",Decode_Queue)
+			
+			if not Data._Obj.Instance then
+				Data._Obj.Instance = game:GetService("CollectionService"):GetTagged("_UUID_"..UUID)[1]
+				target_tbl._ReadOnly._Obj = Data._Obj.Instance
+				--print("[Evolve] Checking if instance exists...",Data._Obj.Instance)
+				if not Data._Obj.Instance then
+					--warn("[Evolve] Instance not found, waiting for _Obj:",target_tbl)
+				end
+			end
+
+		end
+		
+		for i,v in pairs(Data) do
+			if i == "_Obj" or i == "_ClassName" then continue end
+			--print("[Evolve] Processing data:",i,typeof(v),v)
+								
+			if typeof(v) == "SerializedCustomObject" then
+				local UUID = v._Obj.UUID
+				--warn("[Evolve] Decoding.. ",Data,"Found SerializedCustomObject",v)
+				
+				v._Obj.Instance = v._Obj.Instance or game:GetService("CollectionService"):GetTagged("_UUID_"..UUID)[1]
+				
+				--print("[Evolve] Loading nested SerializedCustomObject.. Creating new Streamable:",Data,i,v,UUID,Decode_Queue,loaded_cache[UUID],Decode_Queue[UUID],unloaded_cache[UUID])
+				local newCustomObject = loaded_cache[UUID] or unloaded_cache[UUID] or Decode_Queue[UUID] or Replicator.InstantLoad(UUID)
+				
+				local streamable = Streamable.new(newCustomObject,UUID)
+				
+				if not newCustomObject._ReadOnly._Obj then
+					unloaded_cache[UUID] = newCustomObject
+				end
+				
+				target_tbl[i] = streamable
+			elseif typeof(v) == "SerializedInstance" then
+				local UUID = v.UUID
+				
+				v = ((not v.Instance or v.Instance:IsDescendantOf(workspace)) and Streamable.new(UUID)) or v.Instance
+				
+				--print("[Evolve] Found SerializedInstance. Created new Streamable.",i,v)
+				
+				target_tbl[i] = v
+			elseif typeof(v) == "SerializedNestedPropertyTable" then
+				for a,b in pairs(v) do
+					v[a]=nil
+					v[tonumber(a) or a] = b
+				end
+				target_tbl[--[[unpack(Process({i}))]]i] = Core.NewNestedPropertyTable(Process(v._root),Process(v),v._path)
+				--warn('[Evolve] NestedPropertyTable decoded:',i,v,target_tbl[i])
+				
+			else
+				target_tbl[i] = v
+			end
+			
+		end
+		
+		--print('[Evolve] Table decoded:',target_tbl)
+
+		return target_tbl
+	end
+	
+	local x = Process(Data,true)
+	
+	Decode_Queue[Data._Obj.UUID] = nil
+	x._ReadOnly._UnloadedReference = nil
+	
+	--warn('[Evolve] CustomObject decoded:',x)
+
+	return x
+end
+
+function Util.SetNestedTableValue(root,path,v)
+	local dir = root
+	for i,dirName in ipairs(path) do
+		if i == "_path" then continue end
+		if tonumber(i) == #path then
+			dir[dirName] = v
+			continue
+		end
+		dir[dirName] = dir[dirName] or {}
+		dir = dir[dirName]
+	end
+end
+
+function Util.ReplicateChange(self,i,v)
+	local Obj = self:GetObject()
+	
+	if not (game:GetService("RunService"):IsServer() and serialized_cache[Obj]) then return end
+	
+	if typeof(v) == "Instance" or typeof(v) == "table" or typeof(v) == "NestedPropertyTable" then
+		--print('[Evolve] Replicating NestedPropertyTable:',self,i,v)
+		v = unpack(Serialize({v}))
+	elseif typeof(v) == "CustomObject" then
+		v = (serialized_cache[Obj] and {_Obj = Core.FormatObj(v:GetObject()),_ClassName = v:GetClassName()}) or Util.Encode(v)
+	end
+		
+	if typeof(i) == "NestedPropertyPath" then
+		Util.SetNestedTableValue(serialized_cache[Obj],i,v)
+	else
+		serialized_cache[Obj][i] = v
+	end
+	
+	if Core.IsReplicable(Obj) then
+		--print('[Evolve] Sending replicated change!', Core.FormatObj(Obj),self:GetClassName(),i,v)
+		script.Parent.Parent.SendObjects:FireAllClients(Obj:GetAttribute("UUID"),Core.FormatObj(Obj),self:GetClassName(),i,v)
+	else
+		Util.serialized_changes[self] = Util.serialized_changes[self] or {_Obj = Core.FormatObj(self:GetObject()),_ClassName = self:GetClassName()}
+		if typeof(i) == "NestedPropertyPath" then
+			Util.SetNestedTableValue(Util.serialized_changes[self],i,v)
+		end
+		Util.serialized_changes[self][i] = v
+	end
+end
+
+return Util</string>
+              </Properties>
+            </Item>
+            <Item class="ModuleScript" referent="10">
+              <Properties>
+                <string name="Name">UUID</string>
+                <string name="Source">local UUIDUtil = {}
+
+local CollectionService = game:GetService("CollectionService")
+
+local require = require(game:GetService("ReplicatedStorage"):WaitForChild("Evolve"))
+
+local typeof = require("typeof")
+
+local IsServer = game:GetService("RunService"):IsServer()
+
+local GlobalDescendantCount = 0
+
+function UUIDUtil.Generate(target,forceLoad)
+
+	local function Generate()
+		GlobalDescendantCount = GlobalDescendantCount+(IsServer and 1 or -1)
+
+		game.CollectionService:AddTag(target,"_UUID_"..GlobalDescendantCount)
+		target:SetAttribute("UUID", GlobalDescendantCount)
+
+		return GlobalDescendantCount
+	end
+	
+	local function Process(target)
+		local target = (typeof(target)=="Instance" and target or typeof(target) == "CustomObject" and target:GetObject()) or nil
+		if not target then return end
+		
+		local UUIDAttribute = target:GetAttribute("UUID")
+		
+		if forceLoad then return Generate() end
+		if not UUIDAttribute then return Generate() end
+			
+		local ObjsSharingUUID = CollectionService:GetTagged("_UUID_"..UUIDAttribute)
+		if #ObjsSharingUUID > 0 and ObjsSharingUUID[1] ~= target then
+			for _,Tag in pairs(CollectionService:GetTags(target)) do
+				local RemoveUUID = Tag:sub(1,6) == "_UUID_" and CollectionService:RemoveTag(target,Tag)
+			end
+			return Generate()
+		end
+		
+		return UUIDAttribute
+	end
+
+	return Process(target)
+end
+
+--Remove All UUIDs
+--[[
+local CollectionService = game:GetService("CollectionService")
+for _,v in pairs(game:GetDescendants()) do
+	pcall(function()
+		v:SetAttribute("UUID",nil)
+		for _,Tag in pairs(CollectionService:GetTags(v)) do
+			local RemoveUUID = Tag:sub(1,6) == "_UUID_" and CollectionService:RemoveTag(v,Tag)
+		end
+	end)
+end]]
+
+
+return UUIDUtil</string>
+              </Properties>
+            </Item>
+          </Item>
+        </Item>
+        <Item class="ModuleScript" referent="11">
+          <Properties>
+            <string name="Name">Events</string>
+            <string name="Source"><![CDATA[local Util = {}
+
+local Signal = require(script.Signal)
+
+function Util.new(ClassName)
+	if ClassName == "Signal" then
+		return Signal.new()
+	end
+	
+	local newEvent = Instance.new(ClassName)
+	newEvent.Name = "⠀"
+	newEvent.Parent = script
+
+	return newEvent
+end
+
+return Util
+]]></string>
+          </Properties>
+          <Item class="ModuleScript" referent="12">
+            <Properties>
+              <string name="Name">Signal</string>
+              <string name="Source">--------------------------------------------------------------------------------
+--               Batched Yield-Safe Signal Implementation                     --
+-- This is a Signal class which has effectively identical behavior to a       --
+-- normal RBXScriptSignal, with the only difference being a couple extra      --
+-- stack frames at the bottom of the stack trace when an error is thrown.     --
+-- This implementation caches runner coroutines, so the ability to yield in   --
+-- the signal handlers comes at minimal extra cost over a naive signal        --
+-- implementation that either always or never spawns a thread.                --
+--                                                                            --
+-- API:                                                                       --
+--   local Signal = require(THIS MODULE)                                      --
+--   local sig = Signal.new()                                                 --
+--   local connection = sig:Connect(function(arg1, arg2, ...) ... end)        --
+--   sig:Fire(arg1, arg2, ...)                                                --
+--   connection:Disconnect()                                                  --
+--   sig:DisconnectAll()                                                      --
+--   local arg1, arg2, ... = sig:Wait()                                       --
+--                                                                            --
+-- Licence:                                                                   --
+--   Licenced under the MIT licence.                                          --
+--                                                                            --
+-- Authors:                                                                   --
+--   stravant - July 31st, 2021 - Created the file.                           --
+--------------------------------------------------------------------------------
+
+-- The currently idle thread to run the next handler on
+local freeRunnerThread = nil
+
+-- Function which acquires the currently idle handler runner thread, runs the
+-- function fn on it, and then releases the thread, returning it to being the
+-- currently idle one.
+-- If there was a currently idle runner thread already, that's okay, that old
+-- one will just get thrown and eventually GCed.
+local function acquireRunnerThreadAndCallEventHandler(fn, ...)
+	local acquiredRunnerThread = freeRunnerThread
+	freeRunnerThread = nil
+	fn(...)
+	-- The handler finished running, this runner thread is free again.
+	freeRunnerThread = acquiredRunnerThread
+end
+
+-- Coroutine runner that we create coroutines of. The coroutine can be 
+-- repeatedly resumed with functions to run followed by the argument to run
+-- them with.
+local function runEventHandlerInFreeThread()
+	while true do
+		acquireRunnerThreadAndCallEventHandler(coroutine.yield())
+	end
+end
+
+-- Connection class
+local Connection = {}
+Connection.__index = Connection
+
+function Connection.new(signal, fn)
+	return setmetatable({
+		_connected = true,
+		_signal = signal,
+		_fn = fn,
+		_next = false,
+	}, Connection)
+end
+
+function Connection:Disconnect()
+	assert(self._connected, "Can't disconnect a connection twice.", 2)
+	self._connected = false
+
+	-- Unhook the node, but DON'T clear it. That way any fire calls that are
+	-- currently sitting on this node will be able to iterate forwards off of
+	-- it, but any subsequent fire calls will not hit it, and it will be GCed
+	-- when no more fire calls are sitting on it.
+	if self._signal._handlerListHead == self then
+		self._signal._handlerListHead = self._next
+	else
+		local prev = self._signal._handlerListHead
+		while prev and prev._next ~= self do
+			prev = prev._next
+		end
+		if prev then
+			prev._next = self._next
+		end
+	end
+end
+
+-- Make Connection strict
+setmetatable(Connection, {
+	--[[__index = function(tb, key)
+		error(("Attempt to get Connection::%s (not a valid member)"):format(tostring(key)), 2)
+	end,--]]
+	__newindex = function(tb, key, value)
+		error(("Attempt to set Connection::%s (not a valid member)"):format(tostring(key)), 2)
+	end
+})
+
+-- Signal class
+local Signal = {}
+Signal.__index = Signal
+
+function Signal.new()
+	return setmetatable({
+		_handlerListHead = false,	
+	}, Signal)
+end
+
+function Signal:Connect(fn)
+	local connection = Connection.new(self, fn)
+	if self._handlerListHead then
+		connection._next = self._handlerListHead
+		self._handlerListHead = connection
+	else
+		self._handlerListHead = connection
+	end
+	return connection
+end
+
+-- Disconnect all handlers. Since we use a linked list it suffices to clear the
+-- reference to the head handler.
+function Signal:DisconnectAll()
+	self._handlerListHead = false
+end
+
+-- Signal:Fire(...) implemented by running the handler functions on the
+-- coRunnerThread, and any time the resulting thread yielded without returning
+-- to us, that means that it yielded to the Roblox scheduler and has been taken
+-- over by Roblox scheduling, meaning we have to make a new coroutine runner.
+function Signal:Fire(...)
+	local item = self._handlerListHead
+	while item do
+		if item._connected then
+			if not freeRunnerThread then
+				freeRunnerThread = coroutine.create(runEventHandlerInFreeThread)
+				coroutine.resume(freeRunnerThread)
+			end
+			task.spawn(freeRunnerThread, item._fn, ...)
+		end
+		item = item._next
+	end
+end
+
+-- Implement Signal:Wait() in terms of a temporary connection using
+-- a Signal:Connect() which disconnects itself.
+function Signal:Wait()
+	local waitingCoroutine = coroutine.running()
+	local cn;
+	cn = self:Connect(function(...)
+		cn:Disconnect()
+		task.spawn(waitingCoroutine, ...)
+	end)
+	return coroutine.yield()
+end
+
+-- Make signal strict
+setmetatable(Signal, {
+	--[[__index = function(tb, key)
+		error(("Attempt to get Signal::%s (not a valid member)"):format(tostring(key)), 2)
+	end,]]
+	__newindex = function(tb, key, value)
+		error(("Attempt to set Signal::%s (not a valid member)"):format(tostring(key)), 2)
+	end
+})
+
+return Signal</string>
+            </Properties>
+          </Item>
+        </Item>
+        <Item class="ModuleScript" referent="13">
+          <Properties>
+            <string name="Name">Maid</string>
+            <string name="Source"><![CDATA[---	Manages the cleaning of events and other things.
+-- Useful for encapsulating state and make deconstructors easy
+-- @classmod Maid
+-- @see Signal
+
+local require = require(game:GetService("ReplicatedStorage"):WaitForChild("Evolve"))
+
+local typeof = require("typeof")
+
+local Maid = {}
+Maid.ClassName = "Maid"
+
+--- Returns a new Maid object
+-- @constructor Maid.new()
+-- @treturn Maid
+function Maid.new()
+	return setmetatable({
+		_tasks = {}
+	}, Maid)
+end
+
+function Maid.isMaid(value)
+	return type(value) == "table" and value.ClassName == "Maid"
+end
+
+--- Returns Maid[key] if not part of Maid metatable
+-- @return Maid[key] value
+function Maid:__index(index)
+	if Maid[index] then
+		return Maid[index]
+	else
+		return self._tasks[index]
+	end
+end
+
+--- Add a task to clean up. Tasks given to a maid will be cleaned when
+--  maid[index] is set to a different value.
+-- @usage
+-- Maid[key] = (function)         Adds a task to perform
+-- Maid[key] = (event connection) Manages an event connection
+-- Maid[key] = (Maid)             Maids can act as an event connection, allowing a Maid to have other maids to clean up.
+-- Maid[key] = (Object)           Maids can cleanup objects with a `Destroy` method
+-- Maid[key] = nil                Removes a named task. If the task is an event, it is disconnected. If it is an object,
+--                                it is destroyed.
+function Maid:__newindex(index, newTask)
+	if Maid[index] ~= nil then
+		error(("'%s' is reserved"):format(tostring(index)), 2)
+	end
+
+	local tasks = self._tasks
+	local oldTask = tasks[index]
+
+	if oldTask == newTask then
+		return
+	end
+
+	tasks[index] = newTask
+
+	if oldTask then
+		if type(oldTask) == "function" then
+			oldTask()
+		elseif typeof(oldTask) == "RBXScriptConnection" then
+			oldTask:Disconnect()
+		elseif oldTask.Destroy then
+			oldTask:Destroy()
+		end
+	end
+end
+
+--- Same as indexing, but uses an incremented number as a key.
+-- @param task An item to clean
+-- @treturn number taskId
+function Maid:GiveTask(task)
+	if not task then return end
+
+	local taskId = #self._tasks+1
+	self[taskId] = task
+
+	return taskId
+end
+
+
+--- Cleans up all tasks.
+-- @alias Destroy
+function Maid:DoCleaning()
+	local tasks = self._tasks
+
+	-- Disconnect all events first as we know this is safe
+	for index, task in pairs(tasks) do
+		if typeof(task) == "RBXScriptConnection" then
+			tasks[index] = nil
+			task:Disconnect()
+		end
+	end
+
+	-- Clear out tasks table completely, even if clean up tasks add more tasks to the maid
+	local function processTasks(tasks)
+		local index, task = next(tasks)
+		while task ~= nil do
+			tasks[index] = nil
+			if type(task) == "function" then
+				task()
+			elseif typeof(task) == "RBXScriptConnection" then
+				task:Disconnect()
+			elseif task.Destroy then
+				task:Destroy()
+			elseif typeof(task) == "table" then
+				processTasks(task)
+			end
+			index, task = next(tasks)
+		end
+	end
+	processTasks(tasks)
+end
+
+--- Alias for DoCleaning()
+-- @function Destroy
+Maid.Destroy = Maid.DoCleaning
+
+return Maid
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="14">
+          <Properties>
+            <string name="Name">Promise</string>
+            <string name="Source"><![CDATA[--[[
+	An implementation of Promises similar to Promise/A+.
+]]
+
+local ERROR_NON_PROMISE_IN_LIST = "Non-promise value passed into %s at index %s"
+local ERROR_NON_LIST = "Please pass a list of promises to %s"
+local ERROR_NON_FUNCTION = "Please pass a handler function to %s!"
+local MODE_KEY_METATABLE = { __mode = "k" }
+
+local function isCallable(value)
+	if type(value) == "function" then
+		return true
+	end
+
+	if type(value) == "table" then
+		local metatable = getmetatable(value)
+		if metatable and type(rawget(metatable, "__call")) == "function" then
+			return true
+		end
+	end
+
+	return false
+end
+
+--[[
+	Creates an enum dictionary with some metamethods to prevent common mistakes.
+]]
+local function makeEnum(enumName, members)
+	local enum = {}
+
+	for _, memberName in ipairs(members) do
+		enum[memberName] = memberName
+	end
+
+	return setmetatable(enum, {
+		__index = function(_, k)
+			error(string.format("%s is not in %s!", k, enumName), 2)
+		end,
+		__newindex = function()
+			error(string.format("Creating new members in %s is not allowed!", enumName), 2)
+		end,
+	})
+end
+
+--[=[
+	An object to represent runtime errors that occur during execution.
+	Promises that experience an error like this will be rejected with
+	an instance of this object.
+
+	@class Error
+]=]
+local Error
+do
+	Error = {
+		Kind = makeEnum("Promise.Error.Kind", {
+			"ExecutionError",
+			"AlreadyCancelled",
+			"NotResolvedInTime",
+			"TimedOut",
+		}),
+	}
+	Error.__index = Error
+
+	function Error.new(options, parent)
+		options = options or {}
+		return setmetatable({
+			error = tostring(options.error) or "[This error has no error text.]",
+			trace = options.trace,
+			context = options.context,
+			kind = options.kind,
+			parent = parent,
+			createdTick = os.clock(),
+			createdTrace = debug.traceback(),
+		}, Error)
+	end
+
+	function Error.is(anything)
+		if type(anything) == "table" then
+			local metatable = getmetatable(anything)
+
+			if type(metatable) == "table" then
+				return rawget(anything, "error") ~= nil and type(rawget(metatable, "extend")) == "function"
+			end
+		end
+
+		return false
+	end
+
+	function Error.isKind(anything, kind)
+		assert(kind ~= nil, "Argument #2 to Promise.Error.isKind must not be nil")
+
+		return Error.is(anything) and anything.kind == kind
+	end
+
+	function Error:extend(options)
+		options = options or {}
+
+		options.kind = options.kind or self.kind
+
+		return Error.new(options, self)
+	end
+
+	function Error:getErrorChain()
+		local runtimeErrors = { self }
+
+		while runtimeErrors[#runtimeErrors].parent do
+			table.insert(runtimeErrors, runtimeErrors[#runtimeErrors].parent)
+		end
+
+		return runtimeErrors
+	end
+
+	function Error:__tostring()
+		local errorStrings = {
+			string.format("-- Promise.Error(%s) --", self.kind or "?"),
+		}
+
+		for _, runtimeError in ipairs(self:getErrorChain()) do
+			table.insert(
+				errorStrings,
+				table.concat({
+					runtimeError.trace or runtimeError.error,
+					runtimeError.context,
+				}, "\n")
+			)
+		end
+
+		return table.concat(errorStrings, "\n")
+	end
+end
+
+--[[
+	Packs a number of arguments into a table and returns its length.
+
+	Used to cajole varargs without dropping sparse values.
+]]
+local function pack(...)
+	return select("#", ...), { ... }
+end
+
+--[[
+	Returns first value (success), and packs all following values.
+]]
+local function packResult(success, ...)
+	return success, select("#", ...), { ... }
+end
+
+local function makeErrorHandler(traceback)
+	assert(traceback ~= nil, "traceback is nil")
+
+	return function(err)
+		-- If the error object is already a table, forward it directly.
+		-- Should we extend the error here and add our own trace?
+
+		if type(err) == "table" then
+			return err
+		end
+
+		return Error.new({
+			error = err,
+			kind = Error.Kind.ExecutionError,
+			trace = debug.traceback(tostring(err), 2),
+			context = "Promise created at:\n\n" .. traceback,
+		})
+	end
+end
+
+--[[
+	Calls a Promise executor with error handling.
+]]
+local function runExecutor(traceback, callback, ...)
+	return packResult(xpcall(callback, makeErrorHandler(traceback), ...))
+end
+
+--[[
+	Creates a function that invokes a callback with correct error handling and
+	resolution mechanisms.
+]]
+local function createAdvancer(traceback, callback, resolve, reject)
+	return function(...)
+		local ok, resultLength, result = runExecutor(traceback, callback, ...)
+
+		if ok then
+			resolve(unpack(result, 1, resultLength))
+		else
+			reject(result[1])
+		end
+	end
+end
+
+local function isEmpty(t)
+	return next(t) == nil
+end
+
+--[=[
+	An enum value used to represent the Promise's status.
+	@interface Status
+	@tag enum
+	@within Promise
+	.Started "Started" -- The Promise is executing, and not settled yet.
+	.Resolved "Resolved" -- The Promise finished successfully.
+	.Rejected "Rejected" -- The Promise was rejected.
+	.Cancelled "Cancelled" -- The Promise was cancelled before it finished.
+]=]
+--[=[
+	@prop Status Status
+	@within Promise
+	@readonly
+	@tag enums
+	A table containing all members of the `Status` enum, e.g., `Promise.Status.Resolved`.
+]=]
+--[=[
+	A Promise is an object that represents a value that will exist in the future, but doesn't right now.
+	Promises allow you to then attach callbacks that can run once the value becomes available (known as *resolving*),
+	or if an error has occurred (known as *rejecting*).
+
+	@class Promise
+	@__index prototype
+]=]
+local Promise = {
+	Error = Error,
+	Status = makeEnum("Promise.Status", { "Started", "Resolved", "Rejected", "Cancelled" }),
+	_getTime = os.clock,
+	_timeEvent = game:GetService("RunService").Heartbeat,
+	_unhandledRejectionCallbacks = {},
+}
+Promise.prototype = {}
+Promise.__index = Promise.prototype
+
+function Promise._new(traceback, callback, parent)
+	if parent ~= nil and not Promise.is(parent) then
+		error("Argument #2 to Promise.new must be a promise or nil", 2)
+	end
+
+	local self = {
+		-- Used to locate where a promise was created
+		_source = traceback,
+
+		_status = Promise.Status.Started,
+
+		-- A table containing a list of all results, whether success or failure.
+		-- Only valid if _status is set to something besides Started
+		_values = nil,
+
+		-- Lua doesn't like sparse arrays very much, so we explicitly store the
+		-- length of _values to handle middle nils.
+		_valuesLength = -1,
+
+		-- Tracks if this Promise has no error observers..
+		_unhandledRejection = true,
+
+		-- Queues representing functions we should invoke when we update!
+		_queuedResolve = {},
+		_queuedReject = {},
+		_queuedFinally = {},
+
+		-- The function to run when/if this promise is cancelled.
+		_cancellationHook = nil,
+
+		-- The "parent" of this promise in a promise chain. Required for
+		-- cancellation propagation upstream.
+		_parent = parent,
+
+		-- Consumers are Promises that have chained onto this one.
+		-- We track them for cancellation propagation downstream.
+		_consumers = setmetatable({}, MODE_KEY_METATABLE),
+	}
+
+	if parent and parent._status == Promise.Status.Started then
+		parent._consumers[self] = true
+	end
+
+	setmetatable(self, Promise)
+
+	local function resolve(...)
+		self:_resolve(...)
+	end
+
+	local function reject(...)
+		self:_reject(...)
+	end
+
+	local function onCancel(cancellationHook)
+		if cancellationHook then
+			if self._status == Promise.Status.Cancelled then
+				cancellationHook()
+			else
+				self._cancellationHook = cancellationHook
+			end
+		end
+
+		return self._status == Promise.Status.Cancelled
+	end
+
+	coroutine.wrap(function()
+		local ok, _, result = runExecutor(self._source, callback, resolve, reject, onCancel)
+
+		if not ok then
+			reject(result[1])
+		end
+	end)()
+
+	return self
+end
+
+--[=[
+	Construct a new Promise that will be resolved or rejected with the given callbacks.
+
+	If you `resolve` with a Promise, it will be chained onto.
+
+	You can safely yield within the executor function and it will not block the creating thread.
+
+	```lua
+	local myFunction()
+		return Promise.new(function(resolve, reject, onCancel)
+			wait(1)
+			resolve("Hello world!")
+		end)
+	end
+
+	myFunction():andThen(--print)
+	```
+
+	You do not need to use `pcall` within a Promise. Errors that occur during execution will be caught and turned into a rejection automatically. If `error()` is called with a table, that table will be the rejection value. Otherwise, string errors will be converted into `Promise.Error(Promise.Error.Kind.ExecutionError)` objects for tracking debug information.
+
+	You may register an optional cancellation hook by using the `onCancel` argument:
+
+	* This should be used to abort any ongoing operations leading up to the promise being settled.
+	* Call the `onCancel` function with a function callback as its only argument to set a hook which will in turn be called when/if the promise is cancelled.
+	* `onCancel` returns `true` if the Promise was already cancelled when you called `onCancel`.
+	* Calling `onCancel` with no argument will not override a previously set cancellation hook, but it will still return `true` if the Promise is currently cancelled.
+	* You can set the cancellation hook at any time before resolving.
+	* When a promise is cancelled, calls to `resolve` or `reject` will be ignored, regardless of if you set a cancellation hook or not.
+
+	@param executor (resolve: (...: any) -> (), reject: (...: any) -> (), onCancel: (abortHandler?: () -> ()) -> boolean) -> ()
+	@return Promise
+]=]
+function Promise.new(executor)
+	return Promise._new(debug.traceback(nil, 2), executor)
+end
+
+function Promise:__tostring()
+	return string.format("Promise(%s)", self._status)
+end
+
+--[=[
+	The same as [Promise.new](/api/Promise#new), except execution begins after the next `Heartbeat` event.
+
+	This is a spiritual replacement for `spawn`, but it does not suffer from the same [issues](https://eryn.io/gist/3db84579866c099cdd5bb2ff37947cec) as `spawn`.
+
+	```lua
+	local function waitForChild(instance, childName, timeout)
+	  return Promise.defer(function(resolve, reject)
+		local child = instance:WaitForChild(childName, timeout)
+
+		;(child and resolve or reject)(child)
+	  end)
+	end
+	```
+
+	@param executor (resolve: (...: any) -> (), reject: (...: any) -> (), onCancel: (abortHandler?: () -> ()) -> boolean) -> ()
+	@return Promise
+]=]
+function Promise.defer(executor)
+	local traceback = debug.traceback(nil, 2)
+	local promise
+	promise = Promise._new(traceback, function(resolve, reject, onCancel)
+		local connection
+		connection = Promise._timeEvent:Connect(function()
+			connection:Disconnect()
+			local ok, _, result = runExecutor(traceback, executor, resolve, reject, onCancel)
+
+			if not ok then
+				reject(result[1])
+			end
+		end)
+	end)
+
+	return promise
+end
+
+-- Backwards compatibility
+Promise.async = Promise.defer
+
+--[=[
+	Creates an immediately resolved Promise with the given value.
+
+	```lua
+	-- Example using Promise.resolve to deliver cached values:
+	function getSomething(name)
+		if cache[name] then
+			return Promise.resolve(cache[name])
+		else
+			return Promise.new(function(resolve, reject)
+				local thing = getTheThing()
+				cache[name] = thing
+
+				resolve(thing)
+			end)
+		end
+	end
+	```
+
+	@param ... any
+	@return Promise<...any>
+]=]
+function Promise.resolve(...)
+	local length, values = pack(...)
+	return Promise._new(debug.traceback(nil, 2), function(resolve)
+		resolve(unpack(values, 1, length))
+	end)
+end
+
+--[=[
+	Creates an immediately rejected Promise with the given value.
+
+	:::caution
+	Something needs to consume this rejection (i.e. `:catch()` it), otherwise it will emit an unhandled Promise rejection --warning on the next frame. Thus, you should not create and store rejected Promises for later use. Only create them on-demand as needed.
+	:::
+
+	@param ... any
+	@return Promise<...any>
+]=]
+function Promise.reject(...)
+	local length, values = pack(...)
+	return Promise._new(debug.traceback(nil, 2), function(_, reject)
+		reject(unpack(values, 1, length))
+	end)
+end
+
+--[[
+	Runs a non-promise-returning function as a Promise with the
+  given arguments.
+]]
+function Promise._try(traceback, callback, ...)
+	local valuesLength, values = pack(...)
+
+	return Promise._new(traceback, function(resolve)
+		resolve(callback(unpack(values, 1, valuesLength)))
+	end)
+end
+
+--[=[
+	Begins a Promise chain, calling a function and returning a Promise resolving with its return value. If the function errors, the returned Promise will be rejected with the error. You can safely yield within the Promise.try callback.
+
+	:::info
+	`Promise.try` is similar to [Promise.promisify](#promisify), except the callback is invoked immediately instead of returning a new function.
+	:::
+
+	```lua
+	Promise.try(function()
+		return math.random(1, 2) == 1 and "ok" or error("Oh an error!")
+	end)
+		:andThen(function(text)
+			--print(text)
+		end)
+		:catch(function(err)
+			--warn("[Evolve] Something went wrong")
+		end)
+	```
+
+	@param callback (...: T...) -> ...any
+	@param ... T... -- Additional arguments passed to `callback`
+	@return Promise
+]=]
+function Promise.try(callback, ...)
+	return Promise._try(debug.traceback(nil, 2), callback, ...)
+end
+
+--[[
+	Returns a new promise that:
+		* is resolved when all input promises resolve
+		* is rejected if ANY input promises reject
+]]
+function Promise._all(traceback, promises, amount)
+	if type(promises) ~= "table" then
+		error(string.format(ERROR_NON_LIST, "Promise.all"), 3)
+	end
+
+	-- We need to check that each value is a promise here so that we can produce
+	-- a proper error rather than a rejected promise with our error.
+	for i, promise in pairs(promises) do
+		if not Promise.is(promise) then
+			error(string.format(ERROR_NON_PROMISE_IN_LIST, "Promise.all", tostring(i)), 3)
+		end
+	end
+
+	-- If there are no values then return an already resolved promise.
+	if #promises == 0 or amount == 0 then
+		return Promise.resolve({})
+	end
+
+	return Promise._new(traceback, function(resolve, reject, onCancel)
+		-- An array to contain our resolved values from the given promises.
+		local resolvedValues = {}
+		local newPromises = {}
+
+		-- Keep a count of resolved promises because just checking the resolved
+		-- values length wouldn't account for promises that resolve with nil.
+		local resolvedCount = 0
+		local rejectedCount = 0
+		local done = false
+
+		local function cancel()
+			for _, promise in ipairs(newPromises) do
+				promise:cancel()
+			end
+		end
+
+		-- Called when a single value is resolved and resolves if all are done.
+		local function resolveOne(i, ...)
+			if done then
+				return
+			end
+
+			resolvedCount = resolvedCount + 1
+
+			if amount == nil then
+				resolvedValues[i] = ...
+			else
+				resolvedValues[resolvedCount] = ...
+			end
+
+			if resolvedCount >= (amount or #promises) then
+				done = true
+				resolve(resolvedValues)
+				cancel()
+			end
+		end
+
+		onCancel(cancel)
+
+		-- We can assume the values inside `promises` are all promises since we
+		-- checked above.
+		for i, promise in ipairs(promises) do
+			newPromises[i] = promise:andThen(function(...)
+				resolveOne(i, ...)
+			end, function(...)
+				rejectedCount = rejectedCount + 1
+
+				if amount == nil or #promises - rejectedCount < amount then
+					cancel()
+					done = true
+
+					reject(...)
+				end
+			end)
+		end
+
+		if done then
+			cancel()
+		end
+	end)
+end
+
+--[=[
+	Accepts an array of Promises and returns a new promise that:
+	* is resolved after all input promises resolve.
+	* is rejected if *any* input promises reject.
+
+	:::info
+	Only the first return value from each promise will be present in the resulting array.
+	:::
+
+	After any input Promise rejects, all other input Promises that are still pending will be cancelled if they have no other consumers.
+
+	```lua
+	local promises = {
+		returnsAPromise("example 1"),
+		returnsAPromise("example 2"),
+		returnsAPromise("example 3"),
+	}
+
+	return Promise.all(promises)
+	```
+
+	@param promises {Promise<T>}
+	@return Promise<{T}>
+]=]
+function Promise.all(promises)
+	return Promise._all(debug.traceback(nil, 2), promises)
+end
+
+--[=[
+	Folds an array of values or promises into a single value. The array is traversed sequentially.
+
+	The reducer function can return a promise or value directly. Each iteration receives the resolved value from the previous, and the first receives your defined initial value.
+
+	The folding will stop at the first rejection encountered.
+	```lua
+	local basket = {"blueberry", "melon", "pear", "melon"}
+	Promise.fold(basket, function(cost, fruit)
+		if fruit == "blueberry" then
+			return cost -- blueberries are free!
+		else
+			-- call a function that returns a promise with the fruit price
+			return fetchPrice(fruit):andThen(function(fruitCost)
+				return cost + fruitCost
+			end)
+		end
+	end, 0)
+	```
+
+	@since v3.1.0
+	@param list {T | Promise<T>}
+	@param reducer (accumulator: U, value: T, index: number) -> U | Promise<U>
+	@param initialValue U
+]=]
+function Promise.fold(list, reducer, initialValue)
+	assert(type(list) == "table", "Bad argument #1 to Promise.fold: must be a table")
+	assert(isCallable(reducer), "Bad argument #2 to Promise.fold: must be a function")
+
+	local accumulator = Promise.resolve(initialValue)
+	return Promise.each(list, function(resolvedElement, i)
+		accumulator = accumulator:andThen(function(previousValueResolved)
+			return reducer(previousValueResolved, resolvedElement, i)
+		end)
+	end):andThenReturn(accumulator)
+end
+
+--[=[
+	Accepts an array of Promises and returns a Promise that is resolved as soon as `count` Promises are resolved from the input array. The resolved array values are in the order that the Promises resolved in. When this Promise resolves, all other pending Promises are cancelled if they have no other consumers.
+
+	`count` 0 results in an empty array. The resultant array will never have more than `count` elements.
+
+	```lua
+	local promises = {
+		returnsAPromise("example 1"),
+		returnsAPromise("example 2"),
+		returnsAPromise("example 3"),
+	}
+
+	return Promise.some(promises, 2) -- Only resolves with first 2 promises to resolve
+	```
+
+	@param promises {Promise<T>}
+	@param count number
+	@return Promise<{T}>
+]=]
+function Promise.some(promises, count)
+	assert(type(count) == "number", "Bad argument #2 to Promise.some: must be a number")
+
+	return Promise._all(debug.traceback(nil, 2), promises, count)
+end
+
+--[=[
+	Accepts an array of Promises and returns a Promise that is resolved as soon as *any* of the input Promises resolves. It will reject only if *all* input Promises reject. As soon as one Promises resolves, all other pending Promises are cancelled if they have no other consumers.
+
+	Resolves directly with the value of the first resolved Promise. This is essentially [[Promise.some]] with `1` count, except the Promise resolves with the value directly instead of an array with one element.
+
+	```lua
+	local promises = {
+		returnsAPromise("example 1"),
+		returnsAPromise("example 2"),
+		returnsAPromise("example 3"),
+	}
+
+	return Promise.any(promises) -- Resolves with first value to resolve (only rejects if all 3 rejected)
+	```
+
+	@param promises {Promise<T>}
+	@return Promise<T>
+]=]
+function Promise.any(promises)
+	return Promise._all(debug.traceback(nil, 2), promises, 1):andThen(function(values)
+		return values[1]
+	end)
+end
+
+--[=[
+	Accepts an array of Promises and returns a new Promise that resolves with an array of in-place Statuses when all input Promises have settled. This is equivalent to mapping `promise:finally` over the array of Promises.
+
+	```lua
+	local promises = {
+		returnsAPromise("example 1"),
+		returnsAPromise("example 2"),
+		returnsAPromise("example 3"),
+	}
+
+	return Promise.allSettled(promises)
+	```
+
+	@param promises {Promise<T>}
+	@return Promise<{Status}>
+]=]
+function Promise.allSettled(promises)
+	if type(promises) ~= "table" then
+		error(string.format(ERROR_NON_LIST, "Promise.allSettled"), 2)
+	end
+
+	-- We need to check that each value is a promise here so that we can produce
+	-- a proper error rather than a rejected promise with our error.
+	for i, promise in pairs(promises) do
+		if not Promise.is(promise) then
+			error(string.format(ERROR_NON_PROMISE_IN_LIST, "Promise.allSettled", tostring(i)), 2)
+		end
+	end
+
+	-- If there are no values then return an already resolved promise.
+	if #promises == 0 then
+		return Promise.resolve({})
+	end
+
+	return Promise._new(debug.traceback(nil, 2), function(resolve, _, onCancel)
+		-- An array to contain our resolved values from the given promises.
+		local fates = {}
+		local newPromises = {}
+
+		-- Keep a count of resolved promises because just checking the resolved
+		-- values length wouldn't account for promises that resolve with nil.
+		local finishedCount = 0
+
+		-- Called when a single value is resolved and resolves if all are done.
+		local function resolveOne(i, ...)
+			finishedCount = finishedCount + 1
+
+			fates[i] = ...
+
+			if finishedCount >= #promises then
+				resolve(fates)
+			end
+		end
+
+		onCancel(function()
+			for _, promise in ipairs(newPromises) do
+				promise:cancel()
+			end
+		end)
+
+		-- We can assume the values inside `promises` are all promises since we
+		-- checked above.
+		for i, promise in ipairs(promises) do
+			newPromises[i] = promise:finally(function(...)
+				resolveOne(i, ...)
+			end)
+		end
+	end)
+end
+
+--[=[
+	Accepts an array of Promises and returns a new promise that is resolved or rejected as soon as any Promise in the array resolves or rejects.
+
+	:::--warning
+	If the first Promise to settle from the array settles with a rejection, the resulting Promise from `race` will reject.
+
+	If you instead want to tolerate rejections, and only care about at least one Promise resolving, you should use [Promise.any](#any) or [Promise.some](#some) instead.
+	:::
+
+	All other Promises that don't win the race will be cancelled if they have no other consumers.
+
+	```lua
+	local promises = {
+		returnsAPromise("example 1"),
+		returnsAPromise("example 2"),
+		returnsAPromise("example 3"),
+	}
+
+	return Promise.race(promises) -- Only returns 1st value to resolve or reject
+	```
+
+	@param promises {Promise<T>}
+	@return Promise<T>
+]=]
+function Promise.race(promises)
+	assert(type(promises) == "table", string.format(ERROR_NON_LIST, "Promise.race"))
+
+	for i, promise in pairs(promises) do
+		assert(Promise.is(promise), string.format(ERROR_NON_PROMISE_IN_LIST, "Promise.race", tostring(i)))
+	end
+
+	return Promise._new(debug.traceback(nil, 2), function(resolve, reject, onCancel)
+		local newPromises = {}
+		local finished = false
+
+		local function cancel()
+			for _, promise in ipairs(newPromises) do
+				promise:cancel()
+			end
+		end
+
+		local function finalize(callback)
+			return function(...)
+				cancel()
+				finished = true
+				return callback(...)
+			end
+		end
+
+		if onCancel(finalize(reject)) then
+			return
+		end
+
+		for i, promise in ipairs(promises) do
+			newPromises[i] = promise:andThen(finalize(resolve), finalize(reject))
+		end
+
+		if finished then
+			cancel()
+		end
+	end)
+end
+
+--[=[
+	Iterates serially over the given an array of values, calling the predicate callback on each value before continuing.
+
+	If the predicate returns a Promise, we wait for that Promise to resolve before moving on to the next item
+	in the array.
+
+	:::info
+	`Promise.each` is similar to `Promise.all`, except the Promises are ran in order instead of all at once.
+
+	But because Promises are eager, by the time they are created, they're already running. Thus, we need a way to defer creation of each Promise until a later time.
+
+	The predicate function exists as a way for us to operate on our data instead of creating a new closure for each Promise. If you would prefer, you can pass in an array of functions, and in the predicate, call the function and return its return value.
+	:::
+
+	```lua
+	Promise.each({
+		"foo",
+		"bar",
+		"baz",
+		"qux"
+	}, function(value, index)
+		return Promise.delay(1):andThen(function()
+		--print(("%d) Got %s!"):format(index, value))
+		end)
+	end)
+
+	--[[
+		(1 second passes)
+		> 1) Got foo!
+		(1 second passes)
+		> 2) Got bar!
+		(1 second passes)
+		> 3) Got baz!
+		(1 second passes)
+		> 4) Got qux!
+	]]
+	```
+
+	If the Promise a predicate returns rejects, the Promise from `Promise.each` is also rejected with the same value.
+
+	If the array of values contains a Promise, when we get to that point in the list, we wait for the Promise to resolve before calling the predicate with the value.
+
+	If a Promise in the array of values is already Rejected when `Promise.each` is called, `Promise.each` rejects with that value immediately (the predicate callback will never be called even once). If a Promise in the list is already Cancelled when `Promise.each` is called, `Promise.each` rejects with `Promise.Error(Promise.Error.Kind.AlreadyCancelled`). If a Promise in the array of values is Started at first, but later rejects, `Promise.each` will reject with that value and iteration will not continue once iteration encounters that value.
+
+	Returns a Promise containing an array of the returned/resolved values from the predicate for each item in the array of values.
+
+	If this Promise returned from `Promise.each` rejects or is cancelled for any reason, the following are true:
+	- Iteration will not continue.
+	- Any Promises within the array of values will now be cancelled if they have no other consumers.
+	- The Promise returned from the currently active predicate will be cancelled if it hasn't resolved yet.
+
+	@since 3.0.0
+	@param list {T | Promise<T>}
+	@param predicate (value: T, index: number) -> U | Promise<U>
+	@return Promise<{U}>
+]=]
+function Promise.each(list, predicate)
+	assert(type(list) == "table", string.format(ERROR_NON_LIST, "Promise.each"))
+	assert(isCallable(predicate), string.format(ERROR_NON_FUNCTION, "Promise.each"))
+
+	return Promise._new(debug.traceback(nil, 2), function(resolve, reject, onCancel)
+		local results = {}
+		local promisesToCancel = {}
+
+		local cancelled = false
+
+		local function cancel()
+			for _, promiseToCancel in ipairs(promisesToCancel) do
+				promiseToCancel:cancel()
+			end
+		end
+
+		onCancel(function()
+			cancelled = true
+
+			cancel()
+		end)
+
+		-- We need to preprocess the list of values and look for Promises.
+		-- If we find some, we must register our andThen calls now, so that those Promises have a consumer
+		-- from us registered. If we don't do this, those Promises might get cancelled by something else
+		-- before we get to them in the series because it's not possible to tell that we plan to use it
+		-- unless we indicate it here.
+
+		local preprocessedList = {}
+
+		for index, value in ipairs(list) do
+			if Promise.is(value) then
+				if value:getStatus() == Promise.Status.Cancelled then
+					cancel()
+					return reject(Error.new({
+						error = "Promise is cancelled",
+						kind = Error.Kind.AlreadyCancelled,
+						context = string.format(
+							"The Promise that was part of the array at index %d passed into Promise.each was already cancelled when Promise.each began.\n\nThat Promise was created at:\n\n%s",
+							index,
+							value._source
+						),
+					}))
+				elseif value:getStatus() == Promise.Status.Rejected then
+					cancel()
+					return reject(select(2, value:await()))
+				end
+
+				-- Chain a new Promise from this one so we only cancel ours
+				local ourPromise = value:andThen(function(...)
+					return ...
+				end)
+
+				table.insert(promisesToCancel, ourPromise)
+				preprocessedList[index] = ourPromise
+			else
+				preprocessedList[index] = value
+			end
+		end
+
+		for index, value in ipairs(preprocessedList) do
+			if Promise.is(value) then
+				local success
+				success, value = value:await()
+
+				if not success then
+					cancel()
+					return reject(value)
+				end
+			end
+
+			if cancelled then
+				return
+			end
+
+			local predicatePromise = Promise.resolve(predicate(value, index))
+
+			table.insert(promisesToCancel, predicatePromise)
+
+			local success, result = predicatePromise:await()
+
+			if not success then
+				cancel()
+				return reject(result)
+			end
+
+			results[index] = result
+		end
+
+		resolve(results)
+	end)
+end
+
+--[=[
+	Checks whether the given object is a Promise via duck typing. This only checks if the object is a table and has an `andThen` method.
+
+	@param object any
+	@return boolean -- `true` if the given `object` is a Promise.
+]=]
+function Promise.is(object)
+	if type(object) ~= "table" then
+		return false
+	end
+
+	local objectMetatable = getmetatable(object)
+
+	if objectMetatable == Promise then
+		-- The Promise came from this library.
+		return true
+	elseif objectMetatable == nil then
+		-- No metatable, but we should still chain onto tables with andThen methods
+		return isCallable(object.andThen)
+	elseif
+		type(objectMetatable) == "table"
+		and type(rawget(objectMetatable, "__index")) == "table"
+		and isCallable(rawget(rawget(objectMetatable, "__index"), "andThen"))
+	then
+		-- Maybe this came from a different or older Promise library.
+		return true
+	end
+
+	return false
+end
+
+--[=[
+	Wraps a function that yields into one that returns a Promise.
+
+	Any errors that occur while executing the function will be turned into rejections.
+
+	:::info
+	`Promise.promisify` is similar to [Promise.try](#try), except the callback is returned as a callable function instead of being invoked immediately.
+	:::
+
+	```lua
+	local sleep = Promise.promisify(wait)
+
+	sleep(1):andThen(--print)
+	```
+
+	```lua
+	local isPlayerInGroup = Promise.promisify(function(player, groupId)
+		return player:IsInGroup(groupId)
+	end)
+	```
+
+	@param callback (...: any) -> ...any
+	@return (...: any) -> Promise
+]=]
+function Promise.promisify(callback)
+	return function(...)
+		return Promise._try(debug.traceback(nil, 2), callback, ...)
+	end
+end
+
+--[=[
+	Returns a Promise that resolves after `seconds` seconds have passed. The Promise resolves with the actual amount of time that was waited.
+
+	This function is **not** a wrapper around `wait`. `Promise.delay` uses a custom scheduler which provides more accurate timing. As an optimization, cancelling this Promise instantly removes the task from the scheduler.
+
+	:::--warning
+	Passing `NaN`, infinity, or a number less than 1/60 is equivalent to passing 1/60.
+	:::
+
+	```lua
+		Promise.delay(5):andThenCall(--print, "This --prints after 5 seconds")
+	```
+
+	@function delay
+	@within Promise
+	@param seconds number
+	@return Promise<number>
+]=]
+do
+	-- uses a sorted doubly linked list (queue) to achieve O(1) remove operations and O(n) for insert
+
+	-- the initial node in the linked list
+	local first
+	local connection
+
+	function Promise.delay(seconds)
+		assert(type(seconds) == "number", "Bad argument #1 to Promise.delay, must be a number.")
+		-- If seconds is -INF, INF, NaN, or less than 1 / 60, assume seconds is 1 / 60.
+		-- This mirrors the behavior of wait()
+		if not (seconds >= 1 / 60) or seconds == math.huge then
+			seconds = 1 / 60
+		end
+
+		return Promise._new(debug.traceback(nil, 2), function(resolve, _, onCancel)
+			local startTime = Promise._getTime()
+			local endTime = startTime + seconds
+
+			local node = {
+				resolve = resolve,
+				startTime = startTime,
+				endTime = endTime,
+			}
+
+			if connection == nil then -- first is nil when connection is nil
+				first = node
+				connection = Promise._timeEvent:Connect(function()
+					local threadStart = Promise._getTime()
+
+					while first ~= nil and first.endTime < threadStart do
+						local current = first
+						first = current.next
+
+						if first == nil then
+							connection:Disconnect()
+							connection = nil
+						else
+							first.previous = nil
+						end
+
+						current.resolve(Promise._getTime() - current.startTime)
+					end
+				end)
+			else -- first is non-nil
+				if first.endTime < endTime then -- if `node` should be placed after `first`
+					-- we will insert `node` between `current` and `next`
+					-- (i.e. after `current` if `next` is nil)
+					local current = first
+					local next = current.next
+
+					while next ~= nil and next.endTime < endTime do
+						current = next
+						next = current.next
+					end
+
+					-- `current` must be non-nil, but `next` could be `nil` (i.e. last item in list)
+					current.next = node
+					node.previous = current
+
+					if next ~= nil then
+						node.next = next
+						next.previous = node
+					end
+				else
+					-- set `node` to `first`
+					node.next = first
+					first.previous = node
+					first = node
+				end
+			end
+
+			onCancel(function()
+				-- remove node from queue
+				local next = node.next
+
+				if first == node then
+					if next == nil then -- if `node` is the first and last
+						connection:Disconnect()
+						connection = nil
+					else -- if `node` is `first` and not the last
+						next.previous = nil
+					end
+					first = next
+				else
+					local previous = node.previous
+					-- since `node` is not `first`, then we know `previous` is non-nil
+					previous.next = next
+
+					if next ~= nil then
+						next.previous = previous
+					end
+				end
+			end)
+		end)
+	end
+end
+
+--[=[
+	Returns a new Promise that resolves if the chained Promise resolves within `seconds` seconds, or rejects if execution time exceeds `seconds`. The chained Promise will be cancelled if the timeout is reached.
+
+	Rejects with `rejectionValue` if it is non-nil. If a `rejectionValue` is not given, it will reject with a `Promise.Error(Promise.Error.Kind.TimedOut)`. This can be checked with [[Error.isKind]].
+
+	```lua
+	getSomething():timeout(5):andThen(function(something)
+		-- got something and it only took at max 5 seconds
+	end):catch(function(e)
+		-- Either getting something failed or the time was exceeded.
+
+		if Promise.Error.isKind(e, Promise.Error.Kind.TimedOut) then
+			--warn("[Evolve] Operation timed out!")
+		else
+			--warn("[Evolve] Operation encountered an error!")
+		end
+	end)
+	```
+
+	Sugar for:
+
+	```lua
+	Promise.race({
+		Promise.delay(seconds):andThen(function()
+			return Promise.reject(
+				rejectionValue == nil
+				and Promise.Error.new({ kind = Promise.Error.Kind.TimedOut })
+				or rejectionValue
+			)
+		end),
+		promise
+	})
+	```
+
+	@param seconds number
+	@param rejectionValue? any -- The value to reject with if the timeout is reached
+	@return Promise
+]=]
+function Promise.prototype:timeout(seconds, rejectionValue)
+	local traceback = debug.traceback(nil, 2)
+
+	return Promise.race({
+		Promise.delay(seconds):andThen(function()
+			return Promise.reject(rejectionValue == nil and Error.new({
+				kind = Error.Kind.TimedOut,
+				error = "Timed out",
+				context = string.format(
+					"Timeout of %d seconds exceeded.\n:timeout() called at:\n\n%s",
+					seconds,
+					traceback
+				),
+			}) or rejectionValue)
+		end),
+		self,
+	})
+end
+
+--[=[
+	Returns the current Promise status.
+
+	@return Status
+]=]
+function Promise.prototype:getStatus()
+	return self._status
+end
+
+--[[
+	Creates a new promise that receives the result of this promise.
+
+	The given callbacks are invoked depending on that result.
+]]
+function Promise.prototype:_andThen(traceback, successHandler, failureHandler)
+	self._unhandledRejection = false
+
+	-- Create a new promise to follow this part of the chain
+	return Promise._new(traceback, function(resolve, reject)
+		-- Our default callbacks just pass values onto the next promise.
+		-- This lets success and failure cascade correctly!
+
+		local successCallback = resolve
+		if successHandler then
+			successCallback = createAdvancer(traceback, successHandler, resolve, reject)
+		end
+
+		local failureCallback = reject
+		if failureHandler then
+			failureCallback = createAdvancer(traceback, failureHandler, resolve, reject)
+		end
+
+		if self._status == Promise.Status.Started then
+			-- If we haven't resolved yet, put ourselves into the queue
+			table.insert(self._queuedResolve, successCallback)
+			table.insert(self._queuedReject, failureCallback)
+		elseif self._status == Promise.Status.Resolved then
+			-- This promise has already resolved! Trigger success immediately.
+			successCallback(unpack(self._values, 1, self._valuesLength))
+		elseif self._status == Promise.Status.Rejected then
+			-- This promise died a terrible death! Trigger failure immediately.
+			failureCallback(unpack(self._values, 1, self._valuesLength))
+		elseif self._status == Promise.Status.Cancelled then
+			-- We don't want to call the success handler or the failure handler,
+			-- we just reject this promise outright.
+			reject(Error.new({
+				error = "Promise is cancelled",
+				kind = Error.Kind.AlreadyCancelled,
+				context = "Promise created at\n\n" .. traceback,
+			}))
+		end
+	end, self)
+end
+
+--[=[
+	Chains onto an existing Promise and returns a new Promise.
+
+	:::--warning
+	Within the failure handler, you should never assume that the rejection value is a string. Some rejections within the Promise library are represented by [[Error]] objects. If you want to treat it as a string for debugging, you should call `tostring` on it first.
+	:::
+
+	Return a Promise from the success or failure handler and it will be chained onto.
+
+	@param successHandler (...: any) -> ...any
+	@param failureHandler? (...: any) -> ...any
+	@return Promise<...any>
+]=]
+function Promise.prototype:andThen(successHandler, failureHandler)
+	assert(successHandler == nil or isCallable(successHandler), string.format(ERROR_NON_FUNCTION, "Promise:andThen"))
+	assert(failureHandler == nil or isCallable(failureHandler), string.format(ERROR_NON_FUNCTION, "Promise:andThen"))
+
+	return self:_andThen(debug.traceback(nil, 2), successHandler, failureHandler)
+end
+
+--[=[
+	Shorthand for `Promise:andThen(nil, failureHandler)`.
+
+	Returns a Promise that resolves if the `failureHandler` worked without encountering an additional error.
+
+	:::--warning
+	Within the failure handler, you should never assume that the rejection value is a string. Some rejections within the Promise library are represented by [[Error]] objects. If you want to treat it as a string for debugging, you should call `tostring` on it first.
+	:::
+
+
+	@param failureHandler (...: any) -> ...any
+	@return Promise<...any>
+]=]
+function Promise.prototype:catch(failureHandler)
+	assert(failureHandler == nil or isCallable(failureHandler), string.format(ERROR_NON_FUNCTION, "Promise:catch"))
+	return self:_andThen(debug.traceback(nil, 2), nil, failureHandler)
+end
+
+--[=[
+	Similar to [Promise.andThen](#andThen), except the return value is the same as the value passed to the handler. In other words, you can insert a `:tap` into a Promise chain without affecting the value that downstream Promises receive.
+
+	```lua
+		getTheValue()
+		:tap(--print)
+		:andThen(function(theValue)
+			--print("[Evolve] Got", theValue, "even though --print returns nil!")
+		end)
+	```
+
+	If you return a Promise from the tap handler callback, its value will be discarded but `tap` will still wait until it resolves before passing the original value through.
+
+	@param tapHandler (...: any) -> ...any
+	@return Promise<...any>
+]=]
+function Promise.prototype:tap(tapHandler)
+	assert(isCallable(tapHandler), string.format(ERROR_NON_FUNCTION, "Promise:tap"))
+	return self:_andThen(debug.traceback(nil, 2), function(...)
+		local callbackReturn = tapHandler(...)
+
+		if Promise.is(callbackReturn) then
+			local length, values = pack(...)
+			return callbackReturn:andThen(function()
+				return unpack(values, 1, length)
+			end)
+		end
+
+		return ...
+	end)
+end
+
+--[=[
+	Attaches an `andThen` handler to this Promise that calls the given callback with the predefined arguments. The resolved value is discarded.
+
+	```lua
+		promise:andThenCall(someFunction, "some", "arguments")
+	```
+
+	This is sugar for
+
+	```lua
+		promise:andThen(function()
+		return someFunction("some", "arguments")
+		end)
+	```
+
+	@param callback (...: any) -> any
+	@param ...? any -- Additional arguments which will be passed to `callback`
+	@return Promise
+]=]
+function Promise.prototype:andThenCall(callback, ...)
+	assert(isCallable(callback), string.format(ERROR_NON_FUNCTION, "Promise:andThenCall"))
+	local length, values = pack(...)
+	return self:_andThen(debug.traceback(nil, 2), function()
+		return callback(unpack(values, 1, length))
+	end)
+end
+
+--[=[
+	Attaches an `andThen` handler to this Promise that discards the resolved value and returns the given value from it.
+
+	```lua
+		promise:andThenReturn("some", "values")
+	```
+
+	This is sugar for
+
+	```lua
+		promise:andThen(function()
+			return "some", "values"
+		end)
+	```
+
+	:::caution
+	Promises are eager, so if you pass a Promise to `andThenReturn`, it will begin executing before `andThenReturn` is reached in the chain. Likewise, if you pass a Promise created from [[Promise.reject]] into `andThenReturn`, it's possible that this will trigger the unhandled rejection --warning. If you need to return a Promise, it's usually best practice to use [[Promise.andThen]].
+	:::
+
+	@param ... any -- Values to return from the function
+	@return Promise
+]=]
+function Promise.prototype:andThenReturn(...)
+	local length, values = pack(...)
+	return self:_andThen(debug.traceback(nil, 2), function()
+		return unpack(values, 1, length)
+	end)
+end
+
+--[=[
+	Cancels this promise, preventing the promise from resolving or rejecting. Does not do anything if the promise is already settled.
+
+	Cancellations will propagate upwards and downwards through chained promises.
+
+	Promises will only be cancelled if all of their consumers are also cancelled. This is to say that if you call `andThen` twice on the same promise, and you cancel only one of the child promises, it will not cancel the parent promise until the other child promise is also cancelled.
+
+	```lua
+		promise:cancel()
+	```
+]=]
+function Promise.prototype:cancel()
+	if self._status ~= Promise.Status.Started then
+		return
+	end
+
+	self._status = Promise.Status.Cancelled
+
+	if self._cancellationHook then
+		self._cancellationHook()
+	end
+
+	if self._parent then
+		self._parent:_consumerCancelled(self)
+	end
+
+	for child in pairs(self._consumers) do
+		child:cancel()
+	end
+
+	self:_finalize()
+end
+
+--[[
+	Used to decrease the number of consumers by 1, and if there are no more,
+	cancel this promise.
+]]
+function Promise.prototype:_consumerCancelled(consumer)
+	if self._status ~= Promise.Status.Started then
+		return
+	end
+
+	self._consumers[consumer] = nil
+
+	if next(self._consumers) == nil then
+		self:cancel()
+	end
+end
+
+--[[
+	Used to set a handler for when the promise resolves, rejects, or is
+	cancelled. Returns a new promise chained from this promise.
+]]
+function Promise.prototype:_finally(traceback, finallyHandler, onlyOk)
+	if not onlyOk then
+		self._unhandledRejection = false
+	end
+
+	-- Return a promise chained off of this promise
+	return Promise._new(traceback, function(resolve, reject)
+		local finallyCallback = resolve
+		if finallyHandler then
+			finallyCallback = createAdvancer(traceback, finallyHandler, resolve, reject)
+		end
+
+		if onlyOk then
+			local callback = finallyCallback
+			finallyCallback = function(...)
+				if self._status == Promise.Status.Rejected then
+					return resolve(self)
+				end
+
+				return callback(...)
+			end
+		end
+
+		if self._status == Promise.Status.Started then
+			-- The promise is not settled, so queue this.
+			table.insert(self._queuedFinally, finallyCallback)
+		else
+			-- The promise already settled or was cancelled, run the callback now.
+			finallyCallback(self._status)
+		end
+	end, self)
+end
+
+--[=[
+	Set a handler that will be called regardless of the promise's fate. The handler is called when the promise is resolved, rejected, *or* cancelled.
+
+	Returns a new promise chained from this promise.
+
+	:::caution
+	If the Promise is cancelled, any Promises chained off of it with `andThen` won't run. Only Promises chained with `finally` or `done` will run in the case of cancellation.
+	:::
+
+	```lua
+	local thing = createSomething()
+
+	doSomethingWith(thing)
+		:andThen(function()
+			--print("[Evolve] It worked!")
+			-- do something..
+		end)
+		:catch(function()
+			--warn("[Evolve] Oh no it failed!")
+		end)
+		:finally(function()
+			-- either way, destroy thing
+
+			thing:Destroy()
+		end)
+
+	```
+
+	@param finallyHandler (status: Status) -> ...any
+	@return Promise<...any>
+]=]
+function Promise.prototype:finally(finallyHandler)
+	assert(finallyHandler == nil or isCallable(finallyHandler), string.format(ERROR_NON_FUNCTION, "Promise:finally"))
+	return self:_finally(debug.traceback(nil, 2), finallyHandler)
+end
+
+--[=[
+	Same as `andThenCall`, except for `finally`.
+
+	Attaches a `finally` handler to this Promise that calls the given callback with the predefined arguments.
+
+	@param callback (...: any) -> any
+	@param ...? any -- Additional arguments which will be passed to `callback`
+	@return Promise
+]=]
+function Promise.prototype:finallyCall(callback, ...)
+	assert(isCallable(callback), string.format(ERROR_NON_FUNCTION, "Promise:finallyCall"))
+	local length, values = pack(...)
+	return self:_finally(debug.traceback(nil, 2), function()
+		return callback(unpack(values, 1, length))
+	end)
+end
+
+--[=[
+	Attaches a `finally` handler to this Promise that discards the resolved value and returns the given value from it.
+
+	```lua
+		promise:finallyReturn("some", "values")
+	```
+
+	This is sugar for
+
+	```lua
+		promise:finally(function()
+			return "some", "values"
+		end)
+	```
+
+	@param ... any -- Values to return from the function
+	@return Promise
+]=]
+function Promise.prototype:finallyReturn(...)
+	local length, values = pack(...)
+	return self:_finally(debug.traceback(nil, 2), function()
+		return unpack(values, 1, length)
+	end)
+end
+
+--[=[
+	Set a handler that will be called only if the Promise resolves or is cancelled. This method is similar to `finally`, except it doesn't catch rejections.
+
+	:::caution
+	`done` should be reserved specifically when you want to perform some operation after the Promise is finished (like `finally`), but you don't want to consume rejections (like in <a href="/roblox-lua-promise/lib/Examples.html#cancellable-animation-sequence">this example</a>). You should use `andThen` instead if you only care about the Resolved case.
+	:::
+
+	:::--warning
+	Like `finally`, if the Promise is cancelled, any Promises chained off of it with `andThen` won't run. Only Promises chained with `done` and `finally` will run in the case of cancellation.
+	:::
+
+	Returns a new promise chained from this promise.
+
+	@param doneHandler (status: Status) -> ...any
+	@return Promise<...any>
+]=]
+function Promise.prototype:done(doneHandler)
+	assert(doneHandler == nil or isCallable(doneHandler), string.format(ERROR_NON_FUNCTION, "Promise:done"))
+	return self:_finally(debug.traceback(nil, 2), doneHandler, true)
+end
+
+--[=[
+	Same as `andThenCall`, except for `done`.
+
+	Attaches a `done` handler to this Promise that calls the given callback with the predefined arguments.
+
+	@param callback (...: any) -> any
+	@param ...? any -- Additional arguments which will be passed to `callback`
+	@return Promise
+]=]
+function Promise.prototype:doneCall(callback, ...)
+	assert(isCallable(callback), string.format(ERROR_NON_FUNCTION, "Promise:doneCall"))
+	local length, values = pack(...)
+	return self:_finally(debug.traceback(nil, 2), function()
+		return callback(unpack(values, 1, length))
+	end, true)
+end
+
+--[=[
+	Attaches a `done` handler to this Promise that discards the resolved value and returns the given value from it.
+
+	```lua
+		promise:doneReturn("some", "values")
+	```
+
+	This is sugar for
+
+	```lua
+		promise:done(function()
+			return "some", "values"
+		end)
+	```
+
+	@param ... any -- Values to return from the function
+	@return Promise
+]=]
+function Promise.prototype:doneReturn(...)
+	local length, values = pack(...)
+	return self:_finally(debug.traceback(nil, 2), function()
+		return unpack(values, 1, length)
+	end, true)
+end
+
+--[=[
+	Yields the current thread until the given Promise completes. Returns the Promise's status, followed by the values that the promise resolved or rejected with.
+
+	@yields
+	@return Status -- The Status representing the fate of the Promise
+	@return ...any -- The values the Promise resolved or rejected with.
+]=]
+function Promise.prototype:awaitStatus()
+	self._unhandledRejection = false
+
+	if self._status == Promise.Status.Started then
+		local bindable = Instance.new("BindableEvent")
+
+		self:finally(function()
+			bindable:Fire()
+		end)
+
+		bindable.Event:Wait()
+		bindable:Destroy()
+	end
+
+	if self._status == Promise.Status.Resolved then
+		return self._status, unpack(self._values, 1, self._valuesLength)
+	elseif self._status == Promise.Status.Rejected then
+		return self._status, unpack(self._values, 1, self._valuesLength)
+	end
+
+	return self._status
+end
+
+local function awaitHelper(status, ...)
+	return status == Promise.Status.Resolved, ...
+end
+
+--[=[
+	Yields the current thread until the given Promise completes. Returns true if the Promise resolved, followed by the values that the promise resolved or rejected with.
+
+	:::caution
+	If the Promise gets cancelled, this function will return `false`, which is indistinguishable from a rejection. If you need to differentiate, you should use [[Promise.awaitStatus]] instead.
+	:::
+
+	```lua
+		local worked, value = getTheValue():await()
+
+	if worked then
+		--print("[Evolve] got", value)
+	else
+		--warn("[Evolve] it failed")
+	end
+	```
+
+	@yields
+	@return boolean -- `true` if the Promise successfully resolved
+	@return ...any -- The values the Promise resolved or rejected with.
+]=]
+function Promise.prototype:await()
+	return awaitHelper(self:awaitStatus())
+end
+
+local function expectHelper(status, ...)
+	if status ~= Promise.Status.Resolved then
+		error((...) == nil and "Expected Promise rejected with no value." or (...), 3)
+	end
+
+	return ...
+end
+
+--[=[
+	Yields the current thread until the given Promise completes. Returns the values that the promise resolved with.
+
+	```lua
+	local worked = pcall(function()
+		--print("[Evolve] got", getTheValue():expect())
+	end)
+
+	if not worked then
+		--warn("[Evolve] it failed")
+	end
+	```
+
+	This is essentially sugar for:
+
+	```lua
+	select(2, assert(promise:await()))
+	```
+
+	**Errors** if the Promise rejects or gets cancelled.
+
+	@error any -- Errors with the rejection value if this Promise rejects or gets cancelled.
+	@yields
+	@return ...any -- The values the Promise resolved with.
+]=]
+function Promise.prototype:expect()
+	return expectHelper(self:awaitStatus())
+end
+
+-- Backwards compatibility
+Promise.prototype.awaitValue = Promise.prototype.expect
+
+--[[
+	Intended for use in tests.
+
+	Similar to await(), but instead of yielding if the promise is unresolved,
+	_unwrap will throw. This indicates an assumption that a promise has
+	resolved.
+]]
+function Promise.prototype:_unwrap()
+	if self._status == Promise.Status.Started then
+		error("Promise has not resolved or rejected.", 2)
+	end
+
+	local success = self._status == Promise.Status.Resolved
+
+	return success, unpack(self._values, 1, self._valuesLength)
+end
+
+function Promise.prototype:_resolve(...)
+	if self._status ~= Promise.Status.Started then
+		if Promise.is((...)) then
+			(...):_consumerCancelled(self)
+		end
+		return
+	end
+
+	-- If the resolved value was a Promise, we chain onto it!
+	if Promise.is((...)) then
+		-- Without this --warning, arguments sometimes mysteriously disappear
+		if select("#", ...) > 1 then
+			local message = string.format(
+				"When returning a Promise from andThen, extra arguments are " .. "discarded! See:\n\n%s",
+				self._source
+			)
+			--warn(message)
+		end
+
+		local chainedPromise = ...
+
+		local promise = chainedPromise:andThen(function(...)
+			self:_resolve(...)
+		end, function(...)
+			local maybeRuntimeError = chainedPromise._values[1]
+
+			-- Backwards compatibility < v2
+			if chainedPromise._error then
+				maybeRuntimeError = Error.new({
+					error = chainedPromise._error,
+					kind = Error.Kind.ExecutionError,
+					context = "[No stack trace available as this Promise originated from an older version of the Promise library (< v2)]",
+				})
+			end
+
+			if Error.isKind(maybeRuntimeError, Error.Kind.ExecutionError) then
+				return self:_reject(maybeRuntimeError:extend({
+					error = "This Promise was chained to a Promise that errored.",
+					trace = "",
+					context = string.format(
+						"The Promise at:\n\n%s\n...Rejected because it was chained to the following Promise, which encountered an error:\n",
+						self._source
+					),
+				}))
+			end
+
+			self:_reject(...)
+		end)
+
+		if promise._status == Promise.Status.Cancelled then
+			self:cancel()
+		elseif promise._status == Promise.Status.Started then
+			-- Adopt ourselves into promise for cancellation propagation.
+			self._parent = promise
+			promise._consumers[self] = true
+		end
+
+		return
+	end
+
+	self._status = Promise.Status.Resolved
+	self._valuesLength, self._values = pack(...)
+
+	-- We assume that these callbacks will not throw errors.
+	for _, callback in ipairs(self._queuedResolve) do
+		coroutine.wrap(callback)(...)
+	end
+
+	self:_finalize()
+end
+
+function Promise.prototype:_reject(...)
+	if self._status ~= Promise.Status.Started then
+		return
+	end
+
+	self._status = Promise.Status.Rejected
+	self._valuesLength, self._values = pack(...)
+
+	-- If there are any rejection handlers, call those!
+	if not isEmpty(self._queuedReject) then
+		-- We assume that these callbacks will not throw errors.
+		for _, callback in ipairs(self._queuedReject) do
+			coroutine.wrap(callback)(...)
+		end
+	else
+		-- At this point, no one was able to observe the error.
+		-- An error handler might still be attached if the error occurred
+		-- synchronously. We'll wait one tick, and if there are still no
+		-- observers, then we should put a message in the console.
+
+		local err = tostring((...))
+
+		coroutine.wrap(function()
+			Promise._timeEvent:Wait()
+
+			-- Someone observed the error, hooray!
+			if not self._unhandledRejection then
+				return
+			end
+
+			-- Build a reasonable message
+			local message = string.format("Unhandled Promise rejection:\n\n%s\n\n%s", err, self._source)
+
+			for _, callback in ipairs(Promise._unhandledRejectionCallbacks) do
+				task.spawn(callback, self, unpack(self._values, 1, self._valuesLength))
+			end
+
+			if Promise.TEST then
+				-- Don't spam output when we're running tests.
+				return
+			end
+
+			--warn(message)
+		end)()
+	end
+
+	self:_finalize()
+end
+
+--[[
+	Calls any :finally handlers. We need this to be a separate method and
+	queue because we must call all of the finally callbacks upon a success,
+	failure, *and* cancellation.
+]]
+function Promise.prototype:_finalize()
+	for _, callback in ipairs(self._queuedFinally) do
+		-- Purposefully not passing values to callbacks here, as it could be the
+		-- resolved values, or rejected errors. If the developer needs the values,
+		-- they should use :andThen or :catch explicitly.
+		coroutine.wrap(callback)(self._status)
+	end
+
+	self._queuedFinally = nil
+	self._queuedReject = nil
+	self._queuedResolve = nil
+
+	-- Clear references to other Promises to allow gc
+	if not Promise.TEST then
+		self._parent = nil
+		self._consumers = nil
+	end
+end
+
+--[=[
+	Chains a Promise from this one that is resolved if this Promise is already resolved, and rejected if it is not resolved at the time of calling `:now()`. This can be used to ensure your `andThen` handler occurs on the same frame as the root Promise execution.
+
+	```lua
+	doSomething()
+		:now()
+		:andThen(function(value)
+			--print("[Evolve] Got", value, "synchronously.")
+		end)
+	```
+
+	If this Promise is still running, Rejected, or Cancelled, the Promise returned from `:now()` will reject with the `rejectionValue` if passed, otherwise with a `Promise.Error(Promise.Error.Kind.NotResolvedInTime)`. This can be checked with [[Error.isKind]].
+
+	@param rejectionValue? any -- The value to reject with if the Promise isn't resolved
+	@return Promise
+]=]
+function Promise.prototype:now(rejectionValue)
+	local traceback = debug.traceback(nil, 2)
+	if self._status == Promise.Status.Resolved then
+		return self:_andThen(traceback, function(...)
+			return ...
+		end)
+	else
+		return Promise.reject(rejectionValue == nil and Error.new({
+			kind = Error.Kind.NotResolvedInTime,
+			error = "This Promise was not resolved in time for :now()",
+			context = ":now() was called at:\n\n" .. traceback,
+		}) or rejectionValue)
+	end
+end
+
+--[=[
+	Repeatedly calls a Promise-returning function up to `times` number of times, until the returned Promise resolves.
+
+	If the amount of retries is exceeded, the function will return the latest rejected Promise.
+
+	```lua
+	local function canFail(a, b, c)
+		return Promise.new(function(resolve, reject)
+			-- do something that can fail
+
+			local failed, thing = doSomethingThatCanFail(a, b, c)
+
+			if failed then
+				reject("it failed")
+			else
+				resolve(thing)
+			end
+		end)
+	end
+
+	local MAX_RETRIES = 10
+	local value = Promise.retry(canFail, MAX_RETRIES, "foo", "bar", "baz") -- args to send to canFail
+	```
+
+	@since 3.0.0
+	@param callback (...: P) -> Promise<T>
+	@param times number
+	@param ...? P
+]=]
+function Promise.retry(callback, times, ...)
+	assert(isCallable(callback), "Parameter #1 to Promise.retry must be a function")
+	assert(type(times) == "number", "Parameter #2 to Promise.retry must be a number")
+
+	local args, length = { ... }, select("#", ...)
+
+	return Promise.resolve(callback(...)):catch(function(...)
+		if times > 0 then
+			return Promise.retry(callback, times - 1, unpack(args, 1, length))
+		else
+			return Promise.reject(...)
+		end
+	end)
+end
+
+--[=[
+	Repeatedly calls a Promise-returning function up to `times` number of times, waiting `seconds` seconds between each
+	retry, until the returned Promise resolves.
+
+	If the amount of retries is exceeded, the function will return the latest rejected Promise.
+
+	@since v3.2.0
+	@param callback (...: P) -> Promise<T>
+	@param times number
+	@param seconds number
+	@param ...? P
+]=]
+function Promise.retryWithDelay(callback, times, seconds, ...)
+	assert(isCallable(callback), "Parameter #1 to Promise.retry must be a function")
+	assert(type(times) == "number", "Parameter #2 (times) to Promise.retry must be a number")
+	assert(type(seconds) == "number", "Parameter #3 (seconds) to Promise.retry must be a number")
+
+	local args, length = { ... }, select("#", ...)
+
+	return Promise.resolve(callback(...)):catch(function(...)
+		if times > 0 then
+			Promise.delay(seconds):await()
+
+			return Promise.retryWithDelay(callback, times - 1, seconds, unpack(args, 1, length))
+		else
+			return Promise.reject(...)
+		end
+	end)
+end
+
+--[=[
+	Converts an event into a Promise which resolves the next time the event fires.
+
+	The optional `predicate` callback, if passed, will receive the event arguments and should return `true` or `false`, based on if this fired event should resolve the Promise or not. If `true`, the Promise resolves. If `false`, nothing happens and the predicate will be rerun the next time the event fires.
+
+	The Promise will resolve with the event arguments.
+
+	:::tip
+	This function will work given any object with a `Connect` method. This includes all Roblox events.
+	:::
+
+	```lua
+	-- Creates a Promise which only resolves when `somePart` is touched
+	-- by a part named `"Something specific"`.
+	return Promise.fromEvent(somePart.Touched, function(part)
+		return part.Name == "Something specific"
+	end)
+	```
+
+	@since 3.0.0
+	@param event Event -- Any object with a `Connect` method. This includes all Roblox events.
+	@param predicate? (...: P) -> boolean -- A function which determines if the Promise should resolve with the given value, or wait for the next event to check again.
+	@return Promise<P>
+]=]
+function Promise.fromEvent(event, predicate)
+	predicate = predicate or function()
+		return true
+	end
+
+	return Promise._new(debug.traceback(nil, 2), function(resolve, _, onCancel)
+		local connection
+		local shouldDisconnect = false
+
+		local function disconnect()
+			connection:Disconnect()
+			connection = nil
+		end
+
+		-- We use shouldDisconnect because if the callback given to Connect is called before
+		-- Connect returns, connection will still be nil. This happens with events that queue up
+		-- events when there's nothing connected, such as RemoteEvents
+
+		connection = event:Connect(function(...)
+			local callbackValue = predicate(...)
+
+			if callbackValue == true then
+				resolve(...)
+
+				if connection then
+					disconnect()
+				else
+					shouldDisconnect = true
+				end
+			elseif type(callbackValue) ~= "boolean" then
+				error("Promise.fromEvent predicate should always return a boolean")
+			end
+		end)
+
+		if shouldDisconnect and connection then
+			return disconnect()
+		end
+
+		onCancel(disconnect)
+	end)
+end
+
+--[=[
+	Registers a callback that runs when an unhandled rejection happens. An unhandled rejection happens when a Promise
+	is rejected, and the rejection is not observed with `:catch`.
+
+	The callback is called with the actual promise that rejected, followed by the rejection values.
+
+	@since v3.2.0
+	@param callback (promise: Promise, ...: any) -- A callback that runs when an unhandled rejection happens.
+	@return () -> () -- Function that unregisters the `callback` when called
+]=]
+function Promise.onUnhandledRejection(callback)
+	table.insert(Promise._unhandledRejectionCallbacks, callback)
+
+	return function()
+		local index = table.find(Promise._unhandledRejectionCallbacks, callback)
+
+		if index then
+			table.remove(Promise._unhandledRejectionCallbacks, index)
+		end
+	end
+end
+
+return Promise
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="15">
+          <Properties>
+            <string name="Name">Streamable</string>
+            <string name="Source">--!nonstrict
+
+-- Streamable
+-- Stephen Leitnick + Humza Mohammed
+-- March 03, 2021
+
+local require = require(game:GetService("ReplicatedStorage"):WaitForChild("Evolve"))
+
+local Maid = require("Maid")
+local typeof = require("typeof")
+local Events = require("Events")
+
+local CollectionService = game:GetService("CollectionService")
+
+type StreamableWithInstance = {
+	Instance: Instance?,
+	_maid: typeof(Maid.new()),
+	[any]: any,
+}
+
+--[=[
+	@within Streamable
+	@prop Instance Instance
+	The current instance represented by the Streamable. If this
+	is being observed, it will always exist. If not currently
+	being observed, this will be `nil`.
+]=]
+
+--[=[
+	@class Streamable
+	@client
+	Because parts in StreamingEnabled games can stream in and out of existence at
+	any point in time, it is hard to write code to interact with them. This is
+	where Streamables come into play. Streamables will observe the existence of
+	a given instance, and will signal when the instance exists and does not
+	exist.
+
+	The API is very simple. Create a Streamable that points to a certain parent
+	and looks for a specific child instance (typically a BasePart). Then, call
+	the `Observe` method to observe when the instance streams in and out.
+
+	```lua
+	local Streamable = require(packages.Streamable).Streamable
+
+	-- Models might take a bit to load, but the model instance
+	-- is never removed, thus we can use WaitForChild.
+	local model = workspace:WaitForChild("MyModel")
+
+	-- Watch for a specific part in the model:
+	local partStreamable = Streamable.new(model, "SomePart")
+
+	partStreamable:Observe(function(part, trove)
+		--print(part:GetFullName() .. " added")
+		-- Run code on the part here.
+		-- Use the trove to manage cleanup when the part goes away.
+		trove:Add(function()
+			-- General cleanup stuff
+			--print(part.Name .. " removed")
+		end)
+	end)
+
+	-- Watch for the PrimaryPart of a model to exist:
+	local primaryStreamable = Streamable.primary(model)
+	primaryStreamable:Observe(function(primary, trove)
+		--print("[Evolve] Model now has a PrimaryPart:", primary.Name)
+		trove:Add(function()
+			--print("[Evolve] Model's PrimaryPart has been removed")
+		end)
+	end)
+
+	-- At any given point, accessing the Instance field will
+	-- reference the observed part, if it exists:
+	if partStreamable.Instance then
+		--print("[Evolve] Streamable has its instance:", partStreamable.Instance)
+	end
+
+	-- When/if done, call Destroy on the streamable, which will
+	-- also clean up any observers:
+	partStreamable:Destroy()
+	primaryStreamable:Destroy()
+	```
+
+	For more information on the mechanics of how StreamingEnabled works
+	and what sort of behavior to expect, see the
+	[Content Streaming](https://developer.roblox.com/en-us/articles/content-streaming#technical-behavior)
+	page. It is important to understand that only BaseParts and their descendants are streamed in/out,
+	whereas other instances are loaded during the initial client load. It is also important to understand
+	that streaming only occurs on the client. The server has immediate access to everything right away.
+]=]
+local Streamable = {}
+Streamable.__index = Streamable
+
+
+--[=[
+	@return Streamable
+	@param parent Instance
+	@param childName string
+
+	Constructs a Streamable that watches for a direct child of name `childName`
+	within the `parent` Instance. Call `Observe` to observe the existence of
+	the child within the parent.
+]=]
+function Streamable.new(a: Instance | number, b: string? | number?)
+
+	local self: StreamableWithInstance = {
+		_maid = Maid.new(),
+		_shown = Events.new("Signal"),
+		_shownMaid = Maid.new()
+	}
+	setmetatable(self, Streamable)
+	
+	self._maid:GiveTask(self._shownMaid)
+	
+	function self._setValue(value)
+		if value==nil or self.Value then return end
+		self.Value = value
+		self._shown:Fire(value,self._shownMaid)
+		self._shownMaid:GiveTask(value:GetPropertyChangedSignal("Parent"):Connect(function()
+			if not value.Parent then
+				self._shownMaid:DoCleaning()
+			end
+		end))
+		self._shownMaid:GiveTask(function()
+			if self.Value == value then
+				self.Value = nil
+			end
+		end)
+	end
+	
+	if typeof(a) == "Instance" and typeof(b) == "string" then
+		newParentChildStreamable(self, a, b)
+	elseif typeof(a) == "CustomObject" then
+		newCustomObjectStreamable(self, b)
+	elseif typeof(a) == "number" then
+		newUUIDStreamable(self, a)
+	end
+	
+	return self
+
+end
+
+function newParentChildStreamable(self, parent: Instance, childName: string)
+	
+	self._setValue(parent:FindFirstChild(childName))
+
+	local function OnChildAdded(child: Instance)
+		if child.Name == childName then
+			self._setValue(child)
+		end
+	end
+
+	self._maid:GiveTask(parent.ChildAdded:Connect(OnChildAdded))
+	
+end
+
+function newUUIDStreamable(self, UUID: number)
+	
+	self._setValue(CollectionService:GetTagged("_UUID_"..UUID)[1])
+	self._maid:GiveTask(CollectionService:GetInstanceAddedSignal("_UUID_"..UUID):Connect(self._setValue))
+	
+end
+
+function newCustomObjectStreamable(self, UUID: number)
+	
+	local CO = require("CustomObjects")
+	
+	local function valueSet(value)
+		if not value then return end
+		self.Value = value
+		self._shown:Fire(value,self._shownMaid)
+		self._shownMaid:GiveTask(CO.Removed:Connect(function(removedObject)
+			if removedObject:GetUUID() == UUID then
+				self._shownMaid:DoCleaning()
+				self.Value = nil
+			end
+		end))
+	end
+	valueSet(require(script.Parent.CustomObjects.Utils.Core).loaded_cache[UUID])
+	
+	local function OnCustomObjectAdded(newCustomObject)
+		if newCustomObject:GetUUID() == UUID then
+			valueSet(newCustomObject)
+		end
+	end
+	
+	self._maid:GiveTask(CO.Added:Connect(OnCustomObjectAdded))
+	
+end
+
+--[=[
+	@return Streamable
+	@param parent Model
+
+	Constructs a streamable that watches for the PrimaryPart of the
+	given `parent` Model.
+]=]
+function Streamable.primary(parent: Model)
+
+	local self: StreamableWithInstance = {
+		_maid = Maid.new(),
+		_shown = Events.new("Signal"),
+		_shownMaid = Maid.new()
+	}
+	setmetatable(self, Streamable)
+
+	self._maid:GiveTask(self._shownMaid)
+
+	self.Instance = parent.PrimaryPart
+
+	local function OnPrimaryPartChanged()
+		local primaryPart = parent.PrimaryPart
+		self._shownMaid:DoCleaning()
+		self.Instance = primaryPart
+		if primaryPart then
+			self._shown:Fire(primaryPart, self._shownMaid)
+		end
+	end
+
+	self._maid:GiveTask(parent:GetPropertyChangedSignal("PrimaryPart"):Connect(OnPrimaryPartChanged))
+	if self.Instance then
+		OnPrimaryPartChanged()
+	end
+
+	return self
+
+end
+
+
+export type Streamable = typeof(Streamable.new(workspace, "X"))
+type Streamables = { Streamable }
+type CompoundHandler = (Streamables, any) -> nil
+
+--[=[
+	@param streamables {Streamable}
+	@param handler ({[child: string]: Instance}, trove: Trove) -> nil
+	@return Trove
+	Creates a compound streamable around all the given streamables. The compound
+	streamable's observer handler will be fired once _all_ the given streamables
+	are in existence, and will be cleaned up when _any_ of the streamables
+	disappear.
+	```lua
+	local s1 = Streamable.new(workspace, "Part1")
+	local s2 = Streamable.new(workspace, "Part2")
+	local compoundTrove = StreamableUtil.Compound({S1 = s1, S2 = s2}, function(streamables, trove)
+		local part1 = streamables.S1.Instance
+		local part2 = streamables.S2.Instance
+		trove:Add(function()
+			--print("[Evolve] Cleanup")
+		end)
+	end)
+	```
+]=]
+function Streamable.Compound(streamables: Streamables, handler: CompoundHandler)
+	
+	local compoundMaid = Maid.new()
+	local observeAllMaid = Maid.new()
+	local allAvailable = false
+	local function Check()
+		if allAvailable then return end
+		for _,streamable in pairs(streamables) do
+			if not streamable.Value then
+				return
+			end
+		end
+		allAvailable = true
+		handler(observeAllMaid)
+	end
+	local function Cleanup()
+		if not allAvailable then return end
+		allAvailable = false
+		observeAllMaid:DoCleaning()
+	end
+	for _,streamable in pairs(streamables) do
+		compoundMaid:GiveTask(streamable:Observe(function(_child, maid)
+			Check()
+			maid:GiveTask(Cleanup)
+		end))
+	end
+	compoundMaid:GiveTask(Cleanup)
+	return compoundMaid
+	
+end
+
+
+--[=[
+	@param handler (instance: Instance, trove: Trove) -> nil
+	@return Connection
+
+	Observes the instance. The handler is called anytime the
+	instance comes into existence, and the trove given is
+	cleaned up when the instance goes away.
+
+	To stop observing, disconnect the returned connection.
+]=]
+function Streamable:Observe(handler)
+	if self.Value then
+		if typeof(self.Value) == "CustomObject" then
+			if self.Value._ReadOnly._Obj then
+				task.spawn(handler, self.Value, self._shownMaid)
+			end
+		else
+			task.spawn(handler, self.Value, self._shownMaid)
+		end
+	end
+	return self._shown:Connect(handler)
+end
+
+
+--[=[
+	Destroys the Streamable. Any observers will be disconnected,
+	which also means that troves within observers will be cleaned
+	up. This should be called when a streamable is no longer needed.
+]=]
+function Streamable:Destroy()
+	self._maid:Destroy()
+end
+
+
+return Streamable</string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="16">
+          <Properties>
+            <string name="Name">Table</string>
+            <string name="Source"><![CDATA[local m = {}
+
+
+local tableTypes = {
+	["CountedDictionary"] = function()
+		
+		local proxy = newproxy(true)
+		local mtbl = getmetatable(proxy)
+
+		mtbl._Length = 0
+		mtbl._Stuff = {}
+
+		mtbl.__newindex = function(self,i,v)
+			local ShouldSubtract = self[i] and (v == nil)
+			mtbl._Length += ShouldSubtract and -1 or v ~= nil and self[i] == nil and 1 or 0 --Only subtract if removing value dont do nothing if setting nil to nil
+			mtbl._Stuff[i]=v
+			local LengthFunction = not ShouldSubtract and typeof(mtbl[tostring(mtbl._Length)]) == "function" and mtbl[tostring(mtbl._Length)]()
+		end
+		mtbl.__index = mtbl._Stuff
+
+		mtbl.__len = function()
+			return mtbl._Length
+		end
+		
+		return proxy
+		
+	end,
+}
+
+
+function m.new(type,...)
+	assert(typeof(type)=="string","Table type must be provided as string value.")
+	
+	return tableTypes[type](...)
+end
+
+return m
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="17">
+          <Properties>
+            <string name="Name">_binder</string>
+            <string name="Source">local Binder = {}
+
+local RunService = game:GetService("RunService")
+local isClient,isServer = RunService:IsClient(),RunService:IsServer()
+local env = (isClient and "Client") or (isServer and "Server")
+
+local CollectionService = game:GetService("CollectionService")
+
+local Classes = require(script.Parent._classes)
+
+local tagPrefix = "Class."
+
+function Binder.BindTags(classesDir)
+	for path,class in pairs(Classes.Get(classesDir)) do
+		if isClient and class:GetAttribute("HasServerSide") then continue end
+		if isServer and (not class:FindFirstChild(class.Name.."-Server")) and (not class:FindFirstChild(class.Name.."-Shared")) then continue end
+		local tag = tagPrefix..path
+		--print('[Evolve] Creating binder for tag:', tag)
+		local function Load(instance)
+			if CollectionService:HasTag(instance,"_CustomObject") then return end
+			if instance:IsDescendantOf(game:GetService("StarterGui")) 
+				or instance:IsDescendantOf(game:GetService("StarterPlayer")) 
+				or instance:IsDescendantOf(game:GetService("StarterPack")) 
+			then return end --Avoids double wrapping: these directories clone to other directories
+			--print("[Evolve] Found instance with class binder tag:",instance,CollectionService:GetTags(instance),tag,debug.traceback())
+			require(script.Parent.CustomObjects).Wrap(instance,path)
+		end
+		
+		CollectionService:GetInstanceAddedSignal(tag):Connect(Load)
+		for _,instance in pairs(CollectionService:GetTagged(tag)) do
+			Load(instance)
+		end
+		
+	end
+end
+
+
+return Binder</string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="18">
+          <Properties>
+            <string name="Name">_classes</string>
+            <string name="Source"><![CDATA[local Classes = {}
+
+local splitter = "."
+local classDirectoryTypes = {
+	"SubClasses",
+	"ChildClasses"
+}
+
+function Classes.Get(dir)--returns dictionary [path]=class
+	local classes = {}
+
+	local function process(dir,path)
+		for _,class in pairs(dir:GetChildren()) do
+			for _,directoryType in pairs(classDirectoryTypes) do
+				if class:FindFirstChild(directoryType) then
+					process(class[directoryType],path..class.Name..splitter)
+				end
+			end
+			if class:FindFirstChildWhichIsA("ModuleScript") then
+				classes[path..class.Name] = class
+			else
+				process(class,path..class.Name..splitter)
+			end
+		end
+	end
+	process(dir,"")
+
+	return classes
+end
+
+function Classes.GetClass(dir,path)--returns class from path	
+	local dirNames = string.split(path,splitter)
+	
+	local function FindInNestedDir(dirName)
+		local subDir
+		for i,directoryType in pairs(classDirectoryTypes) do
+			subDir = dir:FindFirstChild(directoryType) and dir[directoryType]:FindFirstChild(dirName)
+			if subDir then return subDir end
+		end
+	end
+	
+	for _,dirName in pairs(dirNames) do
+		local foundInNestedDir = FindInNestedDir(dirName)
+		dir = foundInNestedDir or dir
+		if foundInNestedDir then continue end
+		if not dir:FindFirstChild(dirName) then return end
+		dir = dir[dirName]
+	end
+	
+	if #dir:GetChildren() == 0 then return end
+	return dir
+end
+
+return Classes
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="19">
+          <Properties>
+            <string name="Name">typeof</string>
+            <string name="Source"><![CDATA[local GetType = function(Entity)
+	if typeof(Entity) == "table" then
+		if getmetatable(Entity) and Entity._ReadOnly and Entity._ReadOnly._ClassName then
+			return "CustomObject"
+		elseif Entity._setValue and getmetatable(Entity).Observe then
+			return "Streamable"
+		elseif Entity._Obj and Entity._ClassName then
+			return "SerializedCustomObject"
+		elseif Entity.UUID then
+			return "SerializedInstance"
+		elseif getmetatable(Entity) and getmetatable(Entity)._path and getmetatable(Entity)._root then
+			return "NestedPropertyTable"
+		elseif Entity._path and Entity._root then
+			return "SerializedNestedPropertyTable"
+		elseif typeof(Entity[1]) == "table" and Entity[1].UUID and Entity[1]._ClassName then
+			return "SerializedCustomObjectTable"
+		elseif Entity._path==true then
+			return "NestedPropertyPath"
+		elseif require(script)(Entity[1]) == "SerializedCustomObject" then
+			return "SerializedCustomObjectList"
+		elseif typeof(Entity.Disconnect) == "function" then
+			return "RBXScriptConnection"
+		elseif typeof(Entity.Fire) == "function" and typeof(Entity.Connect) == "function" then
+			return "Signal"
+		end
+	end
+	return typeof(Entity)
+end
+
+return GetType
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="20">
+          <Properties>
+            <string name="Name">wait</string>
+            <string name="Source">-- Credit to PysephDEV
+
+local o_clock = os.clock
+local c_yield = coroutine.yield
+local c_running = coroutine.running
+local c_resume = coroutine.resume
+
+local Yields = {}
+game:GetService('RunService').Stepped:Connect(function()
+	local Clock = o_clock()
+	for Idx, data in next, Yields do
+		local Spent = Clock - data[1]
+		if Spent >= data[2] then
+			Yields[Idx] = nil
+			c_resume(data[3], Spent, Clock)
+		end
+	end
+end)
+
+return function(Time)
+	Time = (type(Time) ~= 'number' or Time &lt; 0) and 0 or Time
+	table.insert(Yields, {o_clock(), Time, c_running()})
+	return c_yield()
+end</string>
+          </Properties>
+        </Item>
+      </Item>
+    </Item>
+  </Item>
+</roblox>
