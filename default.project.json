@@ -1,0 +1,9 @@
+{
+  "name": "Evolve Framework",
+  "tree": {
+    "$className": "DataModel",
+    "ServerScriptService": {
+        "$path": "src"
+      }
+    }
+}
