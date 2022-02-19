@@ -1,6 +1,5 @@
 /evolveframework.code-workspace
-/selene.toml
-/roblox.toml
+/*.toml
 
 # Project place file
 /*.rbxlx
