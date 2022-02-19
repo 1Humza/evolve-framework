@@ -1,6 +1,3 @@
-local Build = 10
-
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ReplicatedModuleFolder = Instance.new("Folder")
@@ -8,8 +5,6 @@ ReplicatedModuleFolder.Name = "Modules"
 ReplicatedModuleFolder.Parent = ReplicatedStorage
 
 local ServerModules = game:GetService("ServerScriptService").Modules
-
-script:SetAttribute("Version",Build)
 
 for _,Module in ipairs(ServerModules.Shared:GetChildren()) do Module.Parent = ReplicatedModuleFolder end
 for _,Module in ipairs(ServerModules.Client:GetChildren()) do Module.Parent = ReplicatedModuleFolder end
