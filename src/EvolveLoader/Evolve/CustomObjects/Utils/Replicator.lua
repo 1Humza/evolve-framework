@@ -18,8 +18,8 @@ function manageThread(s,i,v)
 	local thread = mtbl._thread
 	
 	rawset(s,i,v)
-	--warn("[Evolve] Added to replication queue",i,v)
-
+	--warn("[Evolve] Added to replication queue",i,v,Core.loaded_cache,debug.traceback())
+	
 	local threadDead = (not thread) or coroutine.status(thread)=="dead"
 	if not threadDead then return end
 
@@ -33,9 +33,7 @@ end
 
 local Queue = setmetatable({},{
 	_thread = nil,
-	__newindex = function(s,i,v)
-		manageThread(s,i,v)
-	end,
+	__newindex = manageThread,
 })
 Replicator.Queue = Queue
 
@@ -62,10 +60,14 @@ function ProcessData(Queue)
 				--print('[Evolve] Recieved CustomObject data. Wrapping..', v)
 				Item[i] = CustomObjects.Wrap(v)
 			elseif typeof(v) == "SerializedNestedPropertyTable" then
-				SerializeUtil.SetNestedTableValue(Item,v._path,Core.NewNestedPropertyTable(Item,v,v._path))			
+				SerializeUtil.GetEnclosingDir(Item,v._path)[v._path[#v._path]] = Core.NewNestedPropertyTable(Item,v,v._path)	
 			elseif typeof(i) == "NestedPropertyPath" then
-				--print('[Evolve] Updating nested table value:',Item,i,v)
-				SerializeUtil.SetNestedTableValue(Item,i,v)
+				local path = i._nestedtblpath
+				for i,v in ipairs(path) do
+					path[i] = tonumber(v) or v 
+				end
+				--print('[Evolve] Updating nested table value:',Item,path,v)
+				SerializeUtil.GetEnclosingDir(Item,path)[path[#path]] = (type(v) == "table" and unpack(SerializeUtil.Decode({v}))) or v --using type to escape typeof
 			elseif typeof(v) == "table" or typeof(v) == "SerializedInstance" then
 				--print('[Evolve] Recieved table. Attemping to decode:',Item,i,v)
 				Item[i] = SerializeUtil.Decode(v)
@@ -90,11 +92,10 @@ end
 
 
 CustomObjectsModule.SendObjects.OnClientEvent:Connect(function(UUID,Obj,ClassName,i,v)
-	
 	if not Core.loaded_cache[UUID] then return end
-
+	
 	Queue[UUID] = {Obj,ClassName,i,v}
-
+	
 end)
 
 function RequestData(UUID)
@@ -112,8 +113,10 @@ function Replicator.Load(UUID)
 	
 	Requests[UUID] = RequestData(UUID)
 	local value = Requests[UUID]:expect()
+
+	--if Core.loaded_cache[UUID] or SerializeUtil.Decode_Queue[UUID] then return end
 	
-	if Requests[UUID] ~= "InstantLoad" then --would be if InstantLoad runs before
+	if Requests[UUID] and Requests[UUID] ~= "InstantLoad" then --would be if InstantLoad runs before
 		Queue[UUID] = {value}
 		Requests[UUID] = nil
 	end
@@ -138,11 +141,10 @@ function Replicator.InstantLoad(UUID)
 		Requests[UUID] = "InstantLoad"
 		serializedCustomObject = request:expect()
 	end
-		
-	local LoadedCO = CustomObjects.Wrap(serializedCustomObject)
 	
 	Requests[UUID] = nil
-	
+
+	local LoadedCO = CustomObjects.Wrap(serializedCustomObject)
 	return LoadedCO
 	
 end

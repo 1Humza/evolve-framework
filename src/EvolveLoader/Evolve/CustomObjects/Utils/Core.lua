@@ -59,6 +59,7 @@ function Core.NewNestedPropertyTable(CustomObject,displayTable,path) --Client ta
 	metaTable._displayTable = {}--Table.new("Streaming")
 
 	metaTable.__newindex = function(self,i,v)
+		
 		local ReplicatedServerObject = RunService:IsServer() and Core.IsReplicable(CustomObject)
 
 		if ReplicatedServerObject then --Only apply index restrictions for replicable entities
@@ -68,15 +69,12 @@ function Core.NewNestedPropertyTable(CustomObject,displayTable,path) --Client ta
 
 		local newPath = typeof(v) == "table" and not getmetatable(v) and {unpack(metaTable._path)}
 		local addNewDirToPath = newPath and table.insert(newPath,i)
+		local isNewValue = self[i] ~= v
 		rawset(self,i,(newPath and Core.NewNestedPropertyTable(CustomObject,v,newPath)) or v)
 
-
-		if ReplicatedServerObject and self[i] ~= v then
-			local newPath = {["_path"]=true}
-			for i, v in pairs(metaTable._path) do
-				newPath[tostring(i)]=v --Change number indices to string for sending through remote events
-			end
-			newPath[tostring(#newPath+1)]=i
+		if ReplicatedServerObject and isNewValue then
+			local newPath = {_nestedtblpath=metaTable._path}
+			newPath._nestedtblpath[#metaTable._path+1]=i
 			require(script.Parent.Serialize).ReplicateChange(CustomObject,newPath,v)
 		end
 
@@ -131,7 +129,7 @@ function Core.NewCustomObject(_ReadOnly,IsReplicated)
 	local newObj = Constructor(NewCO,unpack(args))
 	
 	_ReadOnly._Obj = _ReadOnly._Obj or newObj
-	_ReadOnly._UUID = _ReadOnly._UUID or _ReadOnly._Obj:GetAttribute("UUID") or UUIDUtil.Generate(_ReadOnly._Obj)
+	_ReadOnly._UUID = _ReadOnly._UUID or UUIDUtil.Generate(_ReadOnly._Obj)
 	_ReadOnly._Loaded = Core.awaiting_cache[_ReadOnly._UUID] or Events.new("Signal")
 	
 	local mtbl = getmetatable(NewCO._Class)

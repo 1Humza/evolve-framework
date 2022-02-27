@@ -14,7 +14,7 @@ local GetType = function(Entity)
 			return "SerializedNestedPropertyTable"
 		elseif typeof(Entity[1]) == "table" and Entity[1].UUID and Entity[1]._ClassName then
 			return "SerializedCustomObjectTable"
-		elseif Entity._path==true then
+		elseif typeof(Entity._nestedtblpath)=="table" then
 			return "NestedPropertyPath"
 		elseif require(script)(Entity[1]) == "SerializedCustomObject" then
 			return "SerializedCustomObjectList"
