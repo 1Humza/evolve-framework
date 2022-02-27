@@ -33,6 +33,8 @@ local function Serialize(PropertyTbl)
 			SerializedTable._path = getmetatable(v)._path
 			SerializedTable._root = unpack(Serialize({getmetatable(v)._root}))
 			SerializedProperties[i] = SerializedTable
+		elseif typeof(v) == "NestedPropertyPath" then
+			
 		elseif typeof(v) == "Instance" then
 			local GenerateUUID = UUIDUtil.Generate(v)
 			SerializedProperties[i] = Core.FormatObj(v)
@@ -105,8 +107,10 @@ function Util.Decode(Data,dataSet)
 			local cachedCustomObject = loaded_cache[UUID] or unloaded_cache[UUID] or Decode_Queue[UUID]
 			
 			target_tbl = cachedCustomObject or MakeNewCustomObject(Data,newData)
-			Decode_Queue[UUID] = target_tbl
-			--warn("[Evolve] Added", UUID, "to decode queue.",Decode_Queue)
+			if newData then
+				Decode_Queue[UUID] = target_tbl
+				--warn("[Evolve] Added", UUID, "to decode queue.",Decode_Queue)
+			end
 			
 			if not Data._Obj.Instance then
 				Data._Obj.Instance = game:GetService("CollectionService"):GetTagged("_UUID_"..UUID)[1]
@@ -168,25 +172,28 @@ function Util.Decode(Data,dataSet)
 	
 	local x = Process(Data,true)
 	
-	Decode_Queue[Data._Obj.UUID] = nil
-	x._ReadOnly._UnloadedReference = nil
+	if typeof(x) == "CustomObject" then
+		Decode_Queue[Data._Obj.UUID] = nil
+		x._ReadOnly._UnloadedReference = nil
+	end
 	
 	--warn('[Evolve] CustomObject decoded:',x)
 
 	return x
 end
 
-function Util.SetNestedTableValue(root,path,v)
+function Util.GetEnclosingDir(root,i)
+	local path = i
+	local destinationDir
 	local dir = root
 	for i,dirName in ipairs(path) do
-		if i == "_path" then continue end
-		if tonumber(i) == #path then
-			dir[dirName] = v
-			continue
+		if i == #path-1 then
+			destinationDir = dir[dirName]
 		end
 		dir[dirName] = dir[dirName] or {}
 		dir = dir[dirName]
 	end
+	return destinationDir
 end
 
 function Util.ReplicateChange(self,i,v)
@@ -202,7 +209,11 @@ function Util.ReplicateChange(self,i,v)
 	end
 		
 	if typeof(i) == "NestedPropertyPath" then
-		Util.SetNestedTableValue(serialized_cache[Obj],i,v)
+		local path = i._nestedtblpath
+		for i,v in ipairs(path) do
+			path[i] = tostring(v)--avoid mixed tables
+		end
+		Util.GetEnclosingDir(serialized_cache[Obj],path)[path[#path]] = v
 	else
 		serialized_cache[Obj][i] = v
 	end
