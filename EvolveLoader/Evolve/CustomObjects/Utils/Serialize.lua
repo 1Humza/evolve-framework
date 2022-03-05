@@ -26,13 +26,13 @@ local function Serialize(PropertyTbl)
 		elseif typeof(v) == "NestedPropertyTable" then
 			--warn("[Evolve] Serializing..Found NestedPropertyTable!",i,v)
 			local SerializedTable = Serialize(v)
+			local newTable = {}
 			for i,v in pairs(SerializedTable) do
-				SerializedTable[i]=nil
-				SerializedTable[tostring(i)] = v--avoid mixed tables
+				newTable[tostring(i)] = v--avoid mixed tables
 			end
-			SerializedTable._path = getmetatable(v)._path
-			SerializedTable._root = unpack(Serialize({getmetatable(v)._root}))
-			SerializedProperties[i] = SerializedTable
+			newTable._path = getmetatable(v)._path
+			newTable._root = unpack(Serialize({getmetatable(v)._root}))
+			SerializedProperties[i] = newTable
 		elseif typeof(v) == "NestedPropertyPath" then
 			
 		elseif typeof(v) == "Instance" then
@@ -213,7 +213,7 @@ function Util.ReplicateChange(self,i,v)
 		for i,v in ipairs(path) do
 			path[i] = tostring(v)--avoid mixed tables
 		end
-		Util.GetEnclosingDir(serialized_cache[Obj],path)[path[#path]] = v
+		Util.GetEnclosingDir(serialized_cache[Obj],path)[tostring(path[#path])] = v
 	else
 		serialized_cache[Obj][i] = v
 	end

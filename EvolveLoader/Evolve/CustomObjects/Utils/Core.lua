@@ -66,27 +66,25 @@ function Core.NewNestedPropertyTable(CustomObject,displayTable,path) --Client ta
 			assert(typeof(i) == "string" or typeof(i) == "number", "Invalid Key type "..typeof(i)..". Expected string or number.")
 		end
 
-
 		local newPath = typeof(v) == "table" and not getmetatable(v) and {unpack(metaTable._path)}
 		local addNewDirToPath = newPath and table.insert(newPath,i)
 		local isNewValue = self[i] ~= v
 		rawset(self,i,(newPath and Core.NewNestedPropertyTable(CustomObject,v,newPath)) or v)
 
 		if ReplicatedServerObject and isNewValue then
-			local newPath = {_nestedtblpath=metaTable._path}
-			newPath._nestedtblpath[#metaTable._path+1]=i
+			local newPath = {_nestedtblpath={unpack(metaTable._path)}}
+			newPath._nestedtblpath[#metaTable._path+1]=tostring(i)
 			require(script.Parent.Serialize).ReplicateChange(CustomObject,newPath,v)
 		end
 
-		local PassToAwait = metaTable.__newIndexPassThru and metaTable.__newIndexPassThru(self,i,v)
 	end
 
-	metaTable.__index = function(self,i,v)
+	--[[metaTable.__index = function(self,i)
 		local Value = rawget(self,i)
 		if typeof(Value) == "SerializedInstance" then
 			return Value.Instance
 		end
-	end
+	end]]
 
 	setmetatable(displayTable,metaTable)
 
@@ -124,23 +122,34 @@ function Core.NewCustomObject(_ReadOnly,IsReplicated)
 		_ReadOnly._NewRan = true
 		return NewCO
 	end
-
-	assert(Constructor,'Cannot create new object of Class "'..ClassName..'"'.."; 'new' constructor not found.")
-	local newObj = Constructor(NewCO,unpack(args))
-	
-	_ReadOnly._Obj = _ReadOnly._Obj or newObj
-	_ReadOnly._UUID = _ReadOnly._UUID or UUIDUtil.Generate(_ReadOnly._Obj)
-	_ReadOnly._Loaded = Core.awaiting_cache[_ReadOnly._UUID] or Events.new("Signal")
 	
 	local mtbl = getmetatable(NewCO._Class)
 	if mtbl then
 		local superclasses = mtbl._classes
 		for _,superclass in ipairs(superclasses) do--new
-			superclass.new(NewCO,unpack(args))
+			local callSuperClassNew = superclass.new and superclass.new(NewCO,unpack(args))
 		end
+	end
+
+	assert(Constructor,'Cannot create new object of Class "'..ClassName..'"'.."; 'new' constructor not found.")
+	local a,b = Constructor(NewCO,unpack(args))
+	local newObj = typeof(a) == "Instance" and a or nil
+	local props = b or (not newObj and a) or nil
+	
+	_ReadOnly._Obj = _ReadOnly._Obj or newObj
+	_ReadOnly._UUID = _ReadOnly._UUID or UUIDUtil.Generate(_ReadOnly._Obj)
+	_ReadOnly._Loaded = Core.awaiting_cache[_ReadOnly._UUID] or Events.new("Signal")
+
+	for prop,v in pairs(props or {}) do
+		NewCO[prop] = v-- Iterating through all properties allows __newindex to process them.
+	end
+	
+	local mtbl = getmetatable(NewCO._Class)
+	if mtbl then
+		local superclasses = mtbl._classes
 		for _,superclass in ipairs(superclasses) do--Initialize
 			if not NewCO._ReadOnly._AutoInit then continue end
-			superclass.Initialize(NewCO,_ReadOnly._ShownMaid)
+			superclass.Initialize(NewCO,_ReadOnly._ShownMaid,unpack(args))
 		end
 		local con
 		con = _ReadOnly._Loaded:Connect(function()

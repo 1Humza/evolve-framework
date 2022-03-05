@@ -12,8 +12,8 @@ local Awaits = {}
 function LoadUtil.Await(CustomObject,Index)
 	local PropertyAdded = Awaits[CustomObject:GetUUID()..Index] or Events.new("Signal")
 	local ObjHasProperty,ObjPropertyValue = Core.CheckIfHasProperty(CustomObject:GetObject(),Index)
-	--print('[Evolve] awaiting', Index, ObjHasProperty,ObjPropertyValue, CustomObject[Index],CustomObject,typeof(CustomObject[Index]))
-	--print(debug.traceback())
+	print('[Evolve] awaiting', Index, ObjHasProperty,ObjPropertyValue, CustomObject[Index],CustomObject,typeof(CustomObject[Index]))
+	print(debug.traceback())
 	
 	local Value = CustomObject[Index]
 
@@ -21,15 +21,15 @@ function LoadUtil.Await(CustomObject,Index)
 		
 		local stored_tbl = Core.unloaded_cache[Value._Obj.UUID]
 		
-		--print(Index,'Waiting',getmetatable(Value),Value._Obj,Core.unloaded_cache)
+		print(Index,'Waiting',getmetatable(Value),Value._Obj,Core.unloaded_cache)
 		rawset(stored_tbl,"__Loaded",coroutine.wrap(function()
-			--print('[Evolve] Loaded FUnc Fired')
+			print('[Evolve] Loaded FUnc Fired')
 			PropertyAdded:Fire()
 		end))
 	--elseif typeof(rawget(CustomObject,"_Properties")[Index]) == "SerializedInstance" then
 	--[[elseif typeof(Value) == "NestedPropertyTable" then
 		local metaTable = getmetatable(Value)
-		--print(#metaTable._unloadedTable,#Value)
+		print(#metaTable._unloadedTable,#Value)
 		if #metaTable._unloadedTable > #Value then
 			metaTable.__newIndexPassThru = metaTable.__newIndexPassThru or function(self,i,v)
 				local checkifTableFullyLoaded =  #metaTable._unloadedTable == #Value and PropertyAdded:Fire()
@@ -49,7 +49,7 @@ function LoadUtil.Await(CustomObject,Index)
 		end)
 	else
 		rawset(CustomObject,"_await_"..Index,coroutine.wrap(function(i,v)
-			--print(i,v)
+			print(i,v)
 			PropertyAdded:Fire()
 		end))
 	end
@@ -58,7 +58,7 @@ function LoadUtil.Await(CustomObject,Index)
 	PropertyAdded:Wait()
 	Awaits[CustomObject:GetUUID()..Index] = nil
 	
-	--print('[Evolve] wait complete',Index)
+	print('[Evolve] wait complete',Index)
 	return CustomObject[Index]
 end
 

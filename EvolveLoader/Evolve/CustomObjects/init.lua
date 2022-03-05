@@ -246,7 +246,7 @@ function CO:__newindex(i,v)
 		_ReadOnly._Obj[i] = v
 	else
 		assert(CO[i]==nil and _ReadOnly[i]==nil,"Unable to overwrite ReadOnly property: "..tostring(i))
-		local v = (typeof(v) == "table" and Core.NewNestedPropertyTable(self,v,{i})) or v
+		local v = (RunService:IsServer() and typeof(v) == "table" and Core.NewNestedPropertyTable(self,v,{i})) or v
 		UUIDUtil.Generate(v)
 		SerializeUtil.ReplicateChange(self,i,v)
 		self._Properties[i] = v

@@ -13,8 +13,6 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 
-if RunService:IsStudio() and (RunService:IsClient() and RunService:IsServer()) then return Evolve end
-
 local Classes = require(script._classes)
 
 Libraries = {script}
