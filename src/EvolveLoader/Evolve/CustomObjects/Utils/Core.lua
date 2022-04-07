@@ -29,8 +29,12 @@ function Core.CheckIfHasProperty(Item,Property,CanBeChild)
 	return success, response
 end
 
-
-
+Core.NonReplicatedDirs = {
+	["ReplicatedFirst"] = true,
+	["NetworkServer"] = true,
+	["ServerScriptService"] = true,
+	["ServerStorage"] = true
+}
 function Core.IsReplicable(Obj)
 	local Obj = typeof(Obj) == "Instance" and Obj or typeof(Obj) == "CustomObject" and Obj:GetObject()
 	return Obj and not(Obj:IsDescendantOf(game:GetService("ReplicatedFirst")) and Obj:IsDescendantOf(game:GetService("NetworkServer")) and Obj:IsDescendantOf(game:GetService("ServerScriptService")) and Obj:IsDescendantOf(game:GetService("ServerStorage"))) or not Obj and false
@@ -55,8 +59,13 @@ function Core.NewNestedPropertyTable(CustomObject,displayTable,path) --Client ta
 
 	metaTable._path = path
 	metaTable._root = CustomObject
+	metaTable._data = {}
 
-	metaTable._displayTable = {}--Table.new("Streaming")
+	metaTable.__call = function(self)
+		return metaTable._data
+	end
+
+	metaTable.__index = metaTable._data
 
 	metaTable.__newindex = function(self,i,v)
 		
@@ -68,8 +77,8 @@ function Core.NewNestedPropertyTable(CustomObject,displayTable,path) --Client ta
 
 		local newPath = typeof(v) == "table" and not getmetatable(v) and {unpack(metaTable._path)}
 		local addNewDirToPath = newPath and table.insert(newPath,i)
-		local isNewValue = self[i] ~= v
-		rawset(self,i,(newPath and Core.NewNestedPropertyTable(CustomObject,v,newPath)) or v)
+		local isNewValue = metaTable._data[i] ~= v
+		metaTable._data[i] = (newPath and Core.NewNestedPropertyTable(CustomObject,v,newPath) or v)
 
 		if ReplicatedServerObject and isNewValue then
 			local newPath = {_nestedtblpath={unpack(metaTable._path)}}
@@ -79,30 +88,22 @@ function Core.NewNestedPropertyTable(CustomObject,displayTable,path) --Client ta
 
 	end
 
-	--[[metaTable.__index = function(self,i)
-		local Value = rawget(self,i)
-		if typeof(Value) == "SerializedInstance" then
-			return Value.Instance
-		end
-	end]]
-
-	setmetatable(displayTable,metaTable)
+	local newNPT = setmetatable({
+		_content = metaTable._data
+	},metaTable)
 
 	if displayTable then
 		for i,v in pairs(displayTable) do
-			rawset(displayTable,i,nil)
 			if (i=="_root"or i=="_path") then continue end-- ignore serialized tags
-			displayTable[i]= v--invoke __newindex to process original table
+			newNPT[i]= v--invoke __newindex to process original table
 		end
 	end
 
-	return displayTable
+	return newNPT
 end
 
 
-
 function Core.NewCustomObject(_ReadOnly,IsReplicated)
-
 	local ClassName = _ReadOnly._ClassName
 	local args = (typeof(IsReplicated) == "table" and IsReplicated) or {}
 	if args then IsReplicated = nil end
@@ -127,7 +128,8 @@ function Core.NewCustomObject(_ReadOnly,IsReplicated)
 	if mtbl then
 		local superclasses = mtbl._classes
 		for _,superclass in ipairs(superclasses) do--new
-			local callSuperClassNew = superclass.new and superclass.new(NewCO,unpack(args))
+			local returnedObj = superclass.new and superclass.new(NewCO,unpack(args))
+			_ReadOnly._Obj = _ReadOnly._Obj or returnedObj
 		end
 	end
 
@@ -148,16 +150,15 @@ function Core.NewCustomObject(_ReadOnly,IsReplicated)
 	if mtbl then
 		local superclasses = mtbl._classes
 		for _,superclass in ipairs(superclasses) do--Initialize
-			if not NewCO._ReadOnly._AutoInit then continue end
+			if not (NewCO._ReadOnly._AutoInit and superclass.Initialize) then continue end
 			superclass.Initialize(NewCO,_ReadOnly._ShownMaid,unpack(args))
 		end
 		local con
 		con = _ReadOnly._Loaded:Connect(function()
 			con:Disconnect()
 			for i,superclass in ipairs(superclasses) do--Start
-				if superclass.Start then
-					superclass.Start(NewCO,_ReadOnly._ShownMaid)
-				end
+				if not superclass.Start then continue end
+				superclass.Start(NewCO,_ReadOnly._ShownMaid)
 			end
 		end)
 
@@ -166,7 +167,7 @@ function Core.NewCustomObject(_ReadOnly,IsReplicated)
 	_ReadOnly._NewRan = true
 
 	return NewCO
-
 end
+
 
 return Core

@@ -50,28 +50,28 @@ type StreamableWithInstance = {
 	local partStreamable = Streamable.new(model, "SomePart")
 
 	partStreamable:Observe(function(part, trove)
-		print(part:GetFullName() .. " added")
+		--print(part:GetFullName() .. " added")
 		-- Run code on the part here.
 		-- Use the trove to manage cleanup when the part goes away.
 		trove:Add(function()
 			-- General cleanup stuff
-			print(part.Name .. " removed")
+			--print(part.Name .. " removed")
 		end)
 	end)
 
 	-- Watch for the PrimaryPart of a model to exist:
 	local primaryStreamable = Streamable.primary(model)
 	primaryStreamable:Observe(function(primary, trove)
-		print("[Evolve] Model now has a PrimaryPart:", primary.Name)
+		--print("[Evolve] Model now has a PrimaryPart:", primary.Name)
 		trove:Add(function()
-			print("[Evolve] Model's PrimaryPart has been removed")
+			--print("[Evolve] Model's PrimaryPart has been removed")
 		end)
 	end)
 
 	-- At any given point, accessing the Instance field will
 	-- reference the observed part, if it exists:
 	if partStreamable.Instance then
-		print("[Evolve] Streamable has its instance:", partStreamable.Instance)
+		--print("[Evolve] Streamable has its instance:", partStreamable.Instance)
 	end
 
 	-- When/if done, call Destroy on the streamable, which will
@@ -157,7 +157,7 @@ function newUUIDStreamable(self, UUID: number)
 	
 	self._setValue(CollectionService:GetTagged("_UUID_"..UUID)[1])
 	self._maid:GiveTask(CollectionService:GetInstanceAddedSignal("_UUID_"..UUID):Connect(self._setValue))
-	
+
 end
 
 function newCustomObjectStreamable(self, UUID: number)
@@ -245,7 +245,7 @@ type CompoundHandler = (Streamables, any) -> nil
 		local part1 = streamables.S1.Instance
 		local part2 = streamables.S2.Instance
 		trove:Add(function()
-			print("[Evolve] Cleanup")
+			--print("[Evolve] Cleanup")
 		end)
 	end)
 	```

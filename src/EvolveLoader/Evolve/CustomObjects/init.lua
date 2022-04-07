@@ -34,7 +34,7 @@ function CO.new(Class,...)
 	local CustomObject = Core.NewCustomObject(_ReadOnly,{...})
 
 	assert(_ReadOnly._Obj, "Instance not returned by 'new' constructor of class "..'"'..Class..'"')
-	
+
 	UUIDUtil.Generate(_ReadOnly._Obj)
 	CustomObject:_init(...)
 
@@ -47,14 +47,14 @@ function CO.Wrap(Data,Class,...)
 
 	assert(Data and (typeof(Data) == "Instance" or IsSerialized), "Attempt to call Wrap on "..typeof(Data)..". Expected Instance.")
 
-	local UUID = (not IsSerialized) and (Data:GetAttribute("UUID") or UUIDUtil.Generate(Data))or (IsSerialized and Data.UUID)
-		
+	local UUID = (not IsSerialized) and UUIDUtil.Generate(Data) or (IsSerialized and Data.UUID)
+
 	local cachedValue = Core.loaded_cache[UUID]
 	if (typeof(cachedValue) == "CustomObject") or ((not Class) and (not IsSerialized)) then
 		assert(cachedValue, "CustomObject "..tostring(cachedValue).." does not exist or `Initialize` function is still running.")
 		return cachedValue
 	end
-	
+
 	local CustomObject
 
 	if IsSerialized then
@@ -72,18 +72,18 @@ function CO.Wrap(Data,Class,...)
 	end
 
 	--warn("[Evolve] Calling _init: ",CustomObject._ClassName,CustomObject)
-	
 	CustomObject:_init(...)
-	
+
 	return CustomObject
 end
 
-function CO.Await(arg)
+function CO.Await(arg,doWarning)
 	--print("[Evolve] Awaiting CustomObject:",arg)
+	local doWarning = doWarning == nil and true
 	local waitingInit = Core.awaiting_cache
 	local UUID = (typeof(arg) == "number" and arg) or (arg:GetAttribute("UUID") or UUIDUtil.Generate(arg))
 	if Core.loaded_cache[UUID] then return Core.loaded_cache[UUID] end
-	
+
 	if waitingInit[UUID] then
 		local i = 2
 		local trace = {debug.info(coroutine.running(),i,"sn")}
@@ -95,10 +95,22 @@ function CO.Await(arg)
 			trace = {debug.info(coroutine.running(),i,"sn")}
 		end--]]
 	end
-	
+
+	local value
+	if doWarning then
+		local thread = coroutine.running()
+		task.defer(function()
+			task.wait(1)
+			if value then return end
+			local path,line = debug.info(thread,3,"sl")
+			warn("Infinite yield possible on '"..path..":"..line.."'")
+		end)
+	end
 	waitingInit[UUID] = waitingInit[UUID] or Events.new("Signal")
-	return Core.loaded_cache[UUID] or typeof(waitingInit[UUID]) == "Signal" and waitingInit[UUID]:Wait()
-		or typeof(waitingInit[UUID]) == "CustomObject" and waitingInit[UUID]._ReadOnly._Loaded:Wait()
+	value = Core.loaded_cache[UUID] or typeof(waitingInit[UUID]) == "Signal" and waitingInit[UUID]:Wait()
+	or typeof(waitingInit[UUID]) == "CustomObject" and waitingInit[UUID]._ReadOnly._Loaded:Wait()
+
+	return value
 end
 
 local function DoInit(Target,...)
@@ -107,22 +119,43 @@ local function DoInit(Target,...)
 	end
 end
 function CO._init(CustomObject,...)
-	
+
+	local Obj = CustomObject:GetObject()
 	if not CustomObject:GetObject() then return end
 
 	local UUID = CustomObject:GetUUID()
-	local Obj = CustomObject:GetObject()
-
 	local _ReadOnly = CustomObject._ReadOnly
 
 	_ReadOnly._DestroyedConn = Obj:GetPropertyChangedSignal("Parent"):Connect(function()end)
 
 	Core.awaiting_cache[UUID] = CustomObject
+	Core.loaded_cache[UUID] = CustomObject
 
 	local Init = _ReadOnly._AutoInit and DoInit(CustomObject,...)
-	local Replicate = RunService:IsServer() and Core.IsReplicable(CustomObject) and script.SendObjects:FireAllClients(UUID,SerializeUtil.Encode(CustomObject))
-
-	Core.loaded_cache[UUID] = CustomObject
+	if RunService:IsServer() then
+		--print("[Evolve] Sending initial data to clients",Obj)
+		local isReplicable = Core.IsReplicable(CustomObject)
+		local Replicate =  isReplicable and script.SendObjects:FireAllClients(UUID,SerializeUtil.Encode(CustomObject))
+		task.defer(function()--Avoids immediate duplicate fire to client if new instance is parented immediately to replicated dir
+			_ReadOnly._ShownMaid:GiveTask(Obj.AncestryChanged:Connect(function(child,parent)
+				if parent and (not Core.NonReplicatedDirs[parent.Name]) then
+					if isReplicable then return end-- Avoid firing if moving within replicated dirs
+					isReplicable = true
+					local function VerifyIndexes(tbl)
+						for i,v in pairs(tbl) do
+							assert(typeof(i) =="number" or typeof(i)=="string","CustomObject: ".."'"..tostring(CustomObject).."'".." Class: ".."'"..CustomObject:GetClassName().."'".." Error: Expected index type number or type string(unable to replicate other index value types) when indexing properties. Got type: "..typeof(i))
+							local recurse = typeof(v) == "table" and VerifyIndexes(v)	
+						end
+					end
+					VerifyIndexes(rawget(CustomObject,"_Properties"))
+					--print("[Evolve] Reparent to Replicated Directory! Sending data to clients",Obj)
+					script.SendObjects:FireAllClients(UUID,SerializeUtil.Encode(CustomObject))
+				else
+					isReplicable = false
+				end
+			end))
+		end)
+	end
 
 	CollectionService:AddTag(Obj,"_CustomObject")
 
@@ -133,7 +166,7 @@ function CO._init(CustomObject,...)
 	CO.Added:Fire(CustomObject)
 
 	return CustomObject
-	
+
 end
 
 function CO:Initialize()
@@ -147,7 +180,9 @@ function CO:Destroy()
 	local _ReadOnly = self._ReadOnly
 
 	Core.loaded_cache[self:GetUUID()] = nil
-	Core.unloaded_cache[self:GetUUID()] = nil
+	if RunService:IsClient() then
+		Core.unloaded_cache[self:GetUUID()] = nil
+	end
 
 	_ReadOnly._Obj:Destroy()
 
@@ -156,7 +191,7 @@ function CO:Destroy()
 
 	SerializeUtil.serialized_cache[_ReadOnly._Obj] = nil
 	SerializeUtil.serialized_changes[self] = nil
-	
+
 	local fireRemoved = RunService:IsClient() and CO.Removed:Fire(self)
 	--print('[Evolve] Destroy() called on:',self)
 	--local ReplicateDestruction = RunService:IsServer() and script.SendObjects:FireAllClients(self:GetUUID(),_ReadOnly._Obj,"_DESTROY")
@@ -179,13 +214,13 @@ end
 function CO:GetPropertyChangedSignal(property)
 	local hasProperty,value = Core.CheckIfHasProperty(self:GetObject(),property)
 	if hasProperty then return self:GetObject():GetPropertyChangedSignal(property) end
-	
+
 	local _ReadOnly = self._ReadOnly
 	_ReadOnly._PropertyChangedSignals = _ReadOnly._PropertyChangedSignals or {}
 
 	local Signal = _ReadOnly._PropertyChangedSignals[property] or Events.new("Signal")
 	_ReadOnly._PropertyChangedSignals[property] = Signal
-	
+
 	return Signal
 end
 
@@ -304,8 +339,6 @@ function CO:Clone(AlreadyCloned)
 	NewCO._Properties = ExtractProperties(self._Properties)
 	NewCO:_init()
 
-	local Replicate = RunService:IsServer() and Core.IsReplicable(NewCO) and script.SendObjects:FireAllClients(UUID,SerializeUtil.Encode(NewCO))
-
 	local Trace = debug.traceback()
 	if (Trace:find('function Initialize')) then
 		error("Infinite operation due to 'Clone' called in initialization function. Try cloning the Instance by calling 'GetObject' on the Custom Object.")
@@ -320,21 +353,16 @@ if game:GetService("RunService"):IsServer() then
 		--print("[Evolve] Recieved replication request from client",player,"for UUID:",UUID,Core.loaded_cache[UUID])
 		return SerializeUtil.Encode(Core.loaded_cache[UUID])
 	end
-	
-	local function PlayerAdded(Player)
-		script["Custom Objects Replicator"]:Clone().Parent = Player.PlayerGui
-	end
-	game.Players.PlayerAdded:Connect(PlayerAdded)
-	for _,Player in pairs(game.Players:GetPlayers()) do
-		PlayerAdded(Player)
-	end
 
-	require(Utils.Load).DescendantAddedToReplicatedDirectory:Connect(function(Descendant)
+	script["Custom Objects Replicator"]:Clone().Parent = game.StarterPlayer.StarterPlayerScripts
+
+	--[[require(Utils.Load).DescendantAddedToReplicatedDirectory:Connect(function(Descendant)
 
 		local UUID = Descendant:GetAttribute("UUID")
 		local CustomObject = UUID and Core.loaded_cache[UUID]
 
 		if not CustomObject then return end
+		if Descendant.Name == "Test" then --print(UUID,'2') end
 
 		local function VerifyIndexes(tbl)
 			for i,v in pairs(tbl) do
@@ -346,7 +374,7 @@ if game:GetService("RunService"):IsServer() then
 
 		local EncodedCO = SerializeUtil.serialized_changes[CustomObject] or SerializeUtil.Encode(CustomObject)
 		script.SendObjects:FireAllClients(UUID,EncodedCO)
-	end)
+	end)]]
 
 	--UUIDUtil.InitialGenerate()
 end
