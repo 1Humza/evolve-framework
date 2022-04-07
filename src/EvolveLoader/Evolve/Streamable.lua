@@ -157,7 +157,7 @@ function newUUIDStreamable(self, UUID: number)
 	
 	self._setValue(CollectionService:GetTagged("_UUID_"..UUID)[1])
 	self._maid:GiveTask(CollectionService:GetInstanceAddedSignal("_UUID_"..UUID):Connect(self._setValue))
-	
+
 end
 
 function newCustomObjectStreamable(self, UUID: number)

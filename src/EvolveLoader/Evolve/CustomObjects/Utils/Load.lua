@@ -62,13 +62,8 @@ function LoadUtil.Await(CustomObject,Index)
 	return CustomObject[Index]
 end
 
---[[LoadUtil.TrackedInstances = setmetatable({},{__newindex=function(s,i,v)
-	if typeof(v)=="table" then
-		v[3]=TrackDestroy(game:GetService("CollectionService"):GetTagged("_UUID_"..i)[1])
-	end
-	rawset(s,i,v)
-end})]]
-LoadUtil.DescendantAddedToReplicatedDirectory = Events.new("Signal")
+
+--LoadUtil.DescendantAddedToReplicatedDirectory = Events.new("Signal")
 
 local RunService = game:GetService("RunService")
 
@@ -80,7 +75,7 @@ if RunService:IsServer() then
 		if not (Success and UUID) then return end
 		
 		UUIDUtil.Generate(Descendant) --if is a clone of instance with UUID this will give it new one
-		local Replicate = Core.IsReplicable(Descendant) and LoadUtil.DescendantAddedToReplicatedDirectory:Fire(Descendant)
+		--local Replicate = Core.IsReplicable(Descendant) and LoadUtil.DescendantAddedToReplicatedDirectory:Fire(Descendant)
 		
 	end)
 	

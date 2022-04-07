@@ -21,6 +21,10 @@ local tableTypes = {
 		mtbl.__len = function()
 			return mtbl._Length
 		end
+
+		mtbl.__call = function(self)
+			return mtbl._Stuff
+		end
 		
 		return proxy
 		

@@ -15,7 +15,6 @@ function Binder.BindTags(classesDir)
 		if isClient and class:GetAttribute("HasServerSide") then continue end
 		if isServer and (not class:FindFirstChild(class.Name.."-Server")) and (not class:FindFirstChild(class.Name.."-Shared")) then continue end
 		local tag = tagPrefix..path
-		--print('[Evolve] Creating binder for tag:', tag)
 		local function Load(instance)
 			if CollectionService:HasTag(instance,"_CustomObject") then return end
 			if instance:IsDescendantOf(game:GetService("StarterGui")) 

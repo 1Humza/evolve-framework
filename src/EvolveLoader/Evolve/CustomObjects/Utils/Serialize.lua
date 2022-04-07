@@ -24,15 +24,18 @@ local function Serialize(PropertyTbl)
 		elseif typeof(v) == "table" then
 			SerializedProperties[i] = Serialize(v)
 		elseif typeof(v) == "NestedPropertyTable" then
-			--warn("[Evolve] Serializing..Found NestedPropertyTable!",i,v)
-			local SerializedTable = Serialize(v)
+			local mtbl = getmetatable(v)
+			local SerializedTable = Serialize(mtbl._data)
+			local newTable = {
+				_data = {}
+			}
 			for i,v in pairs(SerializedTable) do
-				SerializedTable[i]=nil
-				SerializedTable[tostring(i)] = v--avoid mixed tables
+				newTable._data[tostring(i)] = v--avoid mixed tables
 			end
-			SerializedTable._path = getmetatable(v)._path
-			SerializedTable._root = unpack(Serialize({getmetatable(v)._root}))
-			SerializedProperties[i] = SerializedTable
+			newTable._path = mtbl._path
+			newTable._root = unpack(Serialize({mtbl._root}))
+			SerializedProperties[i] = newTable
+			--warn("[Evolve] Serializing..Found NestedPropertyTable!",i,newTable)
 		elseif typeof(v) == "NestedPropertyPath" then
 			
 		elseif typeof(v) == "Instance" then
@@ -105,20 +108,19 @@ function Util.Decode(Data,dataSet)
 			
 			--print("[Evolve] Loading SerializedCustomObject..",Data,UUID,loaded_cache[UUID],Decode_Queue[UUID],unloaded_cache[UUID])
 			local cachedCustomObject = loaded_cache[UUID] or unloaded_cache[UUID] or Decode_Queue[UUID]
-			
+
+			if not Data._Obj.Instance then
+				Data._Obj.Instance = game:GetService("CollectionService"):GetTagged("_UUID_"..UUID)[1]
+				--print("[Evolve] Checking if instance exists...",Data._Obj.Instance)
+				if not Data._Obj.Instance then
+					unloaded_cache[UUID] = target_tbl
+					--warn("[Evolve] Instance not found, waiting for _Obj:",target_tbl)
+				end
+			end
 			target_tbl = cachedCustomObject or MakeNewCustomObject(Data,newData)
 			if newData then
 				Decode_Queue[UUID] = target_tbl
 				--warn("[Evolve] Added", UUID, "to decode queue.",Decode_Queue)
-			end
-			
-			if not Data._Obj.Instance then
-				Data._Obj.Instance = game:GetService("CollectionService"):GetTagged("_UUID_"..UUID)[1]
-				target_tbl._ReadOnly._Obj = Data._Obj.Instance
-				--print("[Evolve] Checking if instance exists...",Data._Obj.Instance)
-				if not Data._Obj.Instance then
-					--warn("[Evolve] Instance not found, waiting for _Obj:",target_tbl)
-				end
 			end
 
 		end
@@ -152,11 +154,11 @@ function Util.Decode(Data,dataSet)
 				
 				target_tbl[i] = v
 			elseif typeof(v) == "SerializedNestedPropertyTable" then
-				for a,b in pairs(v) do
-					v[a]=nil
-					v[tonumber(a) or a] = b
+				for a,b in pairs(v._data) do
+					v._data[a]=nil
+					v._data[tonumber(a) or a] = b
 				end
-				target_tbl[--[[unpack(Process({i}))]]i] = Core.NewNestedPropertyTable(Process(v._root),Process(v),v._path)
+				target_tbl[--[[unpack(Process({i}))]]i] = Core.NewNestedPropertyTable(Process(v._root),Process(v._data),v._path)
 				--warn('[Evolve] NestedPropertyTable decoded:',i,v,target_tbl[i])
 				
 			else
@@ -187,11 +189,13 @@ function Util.GetEnclosingDir(root,i)
 	local destinationDir
 	local dir = root
 	for i,dirName in ipairs(path) do
-		if i == #path-1 then
-			destinationDir = dir[dirName]
-		end
 		dir[dirName] = dir[dirName] or {}
 		dir = dir[dirName]
+		dir = typeof(dir) == "SerializedNestedPropertyTable" and dir._data or dir
+		--	or 
+		if i == #path-1 then
+			destinationDir = dir
+		end
 	end
 	return destinationDir
 end
@@ -201,9 +205,11 @@ function Util.ReplicateChange(self,i,v)
 	
 	if not (game:GetService("RunService"):IsServer() and serialized_cache[Obj]) then return end
 	
-	if typeof(v) == "Instance" or typeof(v) == "table" or typeof(v) == "NestedPropertyTable" then
+	if typeof(v) == "Instance" or typeof(v) == "table" then
 		--print('[Evolve] Replicating NestedPropertyTable:',self,i,v)
 		v = unpack(Serialize({v}))
+	elseif typeof(v) == "NestedPropertyTable" then
+		v = Serialize(v._data)
 	elseif typeof(v) == "CustomObject" then
 		v = (serialized_cache[Obj] and {_Obj = Core.FormatObj(v:GetObject()),_ClassName = v:GetClassName()}) or Util.Encode(v)
 	end
@@ -213,7 +219,7 @@ function Util.ReplicateChange(self,i,v)
 		for i,v in ipairs(path) do
 			path[i] = tostring(v)--avoid mixed tables
 		end
-		Util.GetEnclosingDir(serialized_cache[Obj],path)[path[#path]] = v
+		Util.GetEnclosingDir(serialized_cache[Obj],path)[tostring(path[#path])] = v
 	else
 		serialized_cache[Obj][i] = v
 	end

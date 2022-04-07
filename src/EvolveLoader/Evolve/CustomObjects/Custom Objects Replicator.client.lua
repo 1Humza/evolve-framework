@@ -37,8 +37,8 @@ function ProcessInstance(instance)
 	local CheckClone = UUID<0 and UUIDUtil.Generate(instance) --if is a clone of instance (made on client) with UUID this will give it new one
 	if CheckClone then return end
 	
-	--print("[Evolve] New Instance with UUID added:",instance,Core.loaded_cache[UUID],Serialize.Decode_Queue[UUID],Core.unloaded_cache[UUID])
-	if Core.loaded_cache[UUID] or Serialize.Decode_Queue[UUID] then return end
+	--warn("[Evolve] New Instance with UUID added:",UUID,instance)
+	if Replicator.DoesExist(UUID) then return end
 	
 	local unloaded_CO = Core.unloaded_cache[UUID]
 	if unloaded_CO then
@@ -88,12 +88,12 @@ CollectionService:GetInstanceRemovedSignal("_CustomObject"):Connect(function(Des
 		CustomObject.Removed:Fire(customObject)
 		customObject = nil
 		Descendant = nil
-		task.spawn(function()
+		--[[task.spawn(function()
 			while Core.unloaded_cache[UUID] do
 				wait(1)
 				--print(Core.unloaded_cache,Core.loaded_cache,Replicator.Requests[UUID],Replicator.Queue[UUID],Serialize.Decode_Queue)
 			end
-		end)
+		end)]]
 	end
 	
 	if customObject then

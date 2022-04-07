@@ -10,7 +10,7 @@ local GetType = function(Entity)
 			return "SerializedInstance"
 		elseif getmetatable(Entity) and getmetatable(Entity)._path and getmetatable(Entity)._root then
 			return "NestedPropertyTable"
-		elseif Entity._path and Entity._root then
+		elseif Entity._path and Entity._data and Entity._root then
 			return "SerializedNestedPropertyTable"
 		elseif typeof(Entity[1]) == "table" and Entity[1].UUID and Entity[1]._ClassName then
 			return "SerializedCustomObjectTable"
