@@ -106,7 +106,7 @@ end
 function Core.NewCustomObject(_ReadOnly,IsReplicated)
 	local ClassName = _ReadOnly._ClassName
 	local args = (typeof(IsReplicated) == "table" and IsReplicated) or {}
-	if args then IsReplicated = nil end
+	if next(args) then IsReplicated = nil end
 
 	local Response = require.RequestClass(ClassName,IsReplicated)
 

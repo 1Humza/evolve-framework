@@ -42,7 +42,7 @@ function ProcessInstance(instance)
 	
 	local unloaded_CO = Core.unloaded_cache[UUID]
 	if unloaded_CO then
-		--print("[Evolve] Reloading unloaded CustomObject:", unloaded_CO)
+		--print("[Evolve] Reloading unloaded CustomObject:", unloaded_CO,instance)
 		unloaded_CO._ReadOnly._Obj = instance
 		Core.unloaded_cache[UUID] = nil
 		Core.loaded_cache[UUID] = unloaded_CO

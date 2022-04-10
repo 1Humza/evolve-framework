@@ -146,7 +146,7 @@ function Replicator.Load(UUID)
 	
 	if DoesExist(UUID) then return end
 	
-	if Requests[UUID] and Requests[UUID] ~= "InstantLoad" then --would be if InstantLoad runs before
+	if Requests[UUID] and not Requests[UUID]._instantLoad then-- would be if InstantLoad already made promise
 		Queue[UUID] = {value}
 		Requests[UUID] = nil
 	end
@@ -167,8 +167,9 @@ function Replicator.InstantLoad(UUID)
 		local request = Requests[UUID]
 		if not request then
 			request = RequestData(UUID)
+			Requests[UUID] = request
 		end
-		Requests[UUID] = "InstantLoad"
+		request._instantLoad = true
 		serializedCustomObject = request:expect()
 		local exists = DoesExist(UUID)
 		if exists then return exists end

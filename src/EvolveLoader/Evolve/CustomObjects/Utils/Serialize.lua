@@ -109,6 +109,11 @@ function Util.Decode(Data,dataSet)
 			--print("[Evolve] Loading SerializedCustomObject..",Data,UUID,loaded_cache[UUID],Decode_Queue[UUID],unloaded_cache[UUID])
 			local cachedCustomObject = loaded_cache[UUID] or unloaded_cache[UUID] or Decode_Queue[UUID]
 
+			target_tbl = cachedCustomObject or MakeNewCustomObject(Data,newData)
+			if newData then
+				Decode_Queue[UUID] = target_tbl
+				--warn("[Evolve] Added", UUID, "to decode queue.",Decode_Queue)
+			end
 			if not Data._Obj.Instance then
 				Data._Obj.Instance = game:GetService("CollectionService"):GetTagged("_UUID_"..UUID)[1]
 				--print("[Evolve] Checking if instance exists...",Data._Obj.Instance)
@@ -116,11 +121,6 @@ function Util.Decode(Data,dataSet)
 					unloaded_cache[UUID] = target_tbl
 					--warn("[Evolve] Instance not found, waiting for _Obj:",target_tbl)
 				end
-			end
-			target_tbl = cachedCustomObject or MakeNewCustomObject(Data,newData)
-			if newData then
-				Decode_Queue[UUID] = target_tbl
-				--warn("[Evolve] Added", UUID, "to decode queue.",Decode_Queue)
 			end
 
 		end
