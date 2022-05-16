@@ -69,7 +69,7 @@ end
 
 --- Same as indexing, but uses an incremented number as a key.
 -- @param task An item to clean
--- @treturn number taskId
+-- @treturn any task number taskId
 function Maid:GiveTask(task)
 	if not task then return end
 

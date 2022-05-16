@@ -19,19 +19,12 @@ local _classes = require("_classes")
 local Binder = require(EvolveModule._binder)
 Binder.BindTags(ReplicatedStorage:WaitForChild("Modules").Classes)
 
-function GetUUIDFromCO(instance)
-	if not CollectionService:HasTag(instance,"_CustomObject") then return end
-	for _,tag in ipairs(CollectionService:GetTags(instance)) do
-		if tag:sub(1,6) == "_UUID_" then
-			return tonumber(tag:sub(7,#tag))
-		end
-	end
-end
+
 
 function ProcessInstance(instance)
 	local Success,UUID
 	
-	UUID = GetUUIDFromCO(instance)
+	UUID = instance:GetAttribute("UUID")
 	if not UUID then return end
 	
 	local CheckClone = UUID<0 and UUIDUtil.Generate(instance) --if is a clone of instance (made on client) with UUID this will give it new one
@@ -46,6 +39,7 @@ function ProcessInstance(instance)
 		unloaded_CO._ReadOnly._Obj = instance
 		Core.unloaded_cache[UUID] = nil
 		Core.loaded_cache[UUID] = unloaded_CO
+		Core.strong_ref[UUID] = unloaded_CO
 		unloaded_CO:_init()
 		return
 	end
@@ -65,6 +59,11 @@ end
 
 CollectionService:GetInstanceAddedSignal("_CustomObject"):Connect(ProcessInstance)
 
+for _,Instance in pairs(CollectionService:GetTagged("_CustomObject")) do
+	ProcessInstance(Instance)
+end
+
+
 
 
 
@@ -73,8 +72,12 @@ CollectionService:GetInstanceRemovedSignal("_CustomObject"):Connect(function(Des
 	
 	local Success,UUID = pcall(function() return Descendant:GetAttribute("UUID") end)
 	if not (Success and UUID) then return end
+
+	Core.unloaded_cache[UUID] = Core.loaded_cache[UUID]
+	Core.loaded_cache[UUID] = nil
+	Core.strong_ref[UUID] = nil
 	
-	local customObject = Core.loaded_cache[UUID]
+	--[[local customObject = Core.loaded_cache[UUID]
 	--warn(Descendant,typeof(customObject), 'Removed.',customObject,Core.unloaded_cache)
 	
 	local isLoading = (not customObject) and Replicator.Requests[UUID] or Replicator.Queue[UUID]
@@ -83,17 +86,12 @@ CollectionService:GetInstanceRemovedSignal("_CustomObject"):Connect(function(Des
 		local Loaded = customObject._Loaded and customObject._Loaded:Wait()
 
 		Core.loaded_cache[UUID] = nil
+		Core.strong_ref[UUID] = nil
 		Core.unloaded_cache[UUID] = customObject
 		customObject._ReadOnly._ShownMaid:DoCleaning()
 		CustomObject.Removed:Fire(customObject)
 		customObject = nil
 		Descendant = nil
-		--[[task.spawn(function()
-			while Core.unloaded_cache[UUID] do
-				wait(1)
-				--print(Core.unloaded_cache,Core.loaded_cache,Replicator.Requests[UUID],Replicator.Queue[UUID],Serialize.Decode_Queue)
-			end
-		end)]]
 	end
 	
 	if customObject then
@@ -106,15 +104,6 @@ CollectionService:GetInstanceRemovedSignal("_CustomObject"):Connect(function(Des
 				CleanUp(customObject)
 			end
 		end)
-	end
+	end]]
 
 end)
-
-
-
-
-
-
-for _,instance in pairs(game:GetDescendants()) do
-	task.spawn(ProcessInstance,instance)
-end

@@ -42,12 +42,11 @@ function CO.new(Class,...)
 end
 
 function CO.Wrap(Data,Class,...)
-
 	local IsSerialized = typeof(Data) == "SerializedCustomObject" or typeof(Data) == "SerializedCustomObjectList"
 
 	assert(Data and (typeof(Data) == "Instance" or IsSerialized), "Attempt to call Wrap on "..typeof(Data)..". Expected Instance.")
 
-	local UUID = (not IsSerialized) and UUIDUtil.Generate(Data) or (IsSerialized and Data.UUID)
+	local UUID = (not IsSerialized) and UUIDUtil.Generate(Data) or (IsSerialized and Data._Obj.UUID)
 
 	local cachedValue = Core.loaded_cache[UUID]
 	if (typeof(cachedValue) == "CustomObject") or ((not Class) and (not IsSerialized)) then
@@ -84,7 +83,7 @@ function CO.Await(arg,doWarning)
 	local UUID = (typeof(arg) == "number" and arg) or (arg:GetAttribute("UUID") or UUIDUtil.Generate(arg))
 	if Core.loaded_cache[UUID] then return Core.loaded_cache[UUID] end
 
-	if waitingInit[UUID] then
+	if waitingInit[UUID] and typeof(waitingInit[UUID]) == "CustomObjects" then
 		local i = 2
 		local trace = {debug.info(coroutine.running(),i,"sn")}
 		while #trace>0 do
@@ -100,7 +99,7 @@ function CO.Await(arg,doWarning)
 	if doWarning then
 		local thread = coroutine.running()
 		task.defer(function()
-			task.wait(1)
+			task.wait(3)
 			if value then return end
 			local path,line = debug.info(thread,3,"sl")
 			warn("Infinite yield possible on '"..path..":"..line.."'")
@@ -126,9 +125,9 @@ function CO._init(CustomObject,...)
 	local UUID = CustomObject:GetUUID()
 	local _ReadOnly = CustomObject._ReadOnly
 
-	_ReadOnly._DestroyedConn = Obj:GetPropertyChangedSignal("Parent"):Connect(function()end)
+	--_ReadOnly._DestroyedConn = Obj:GetPropertyChangedSignal("Parent"):Connect(function()end)
 
-	Core.awaiting_cache[UUID] = CustomObject
+	Core.awaiting_cache[UUID] = Core.awaiting_cache[UUID] or CustomObject 
 	Core.loaded_cache[UUID] = CustomObject
 
 	local Init = _ReadOnly._AutoInit and DoInit(CustomObject,...)
@@ -158,7 +157,22 @@ function CO._init(CustomObject,...)
 	end
 
 	CollectionService:AddTag(Obj,"_CustomObject")
+	Obj.Destroying:Connect(function()
+		_ReadOnly._ShownMaid:DoCleaning()
+		Core.loaded_cache[UUID] = nil
+		Core.strong_ref[UUID] = nil
+		if RunService:IsClient() then
+			Core.unloaded_cache[UUID] = nil
+		end
+		SerializeUtil.serialized_cache[_ReadOnly._Obj] = nil
+		SerializeUtil.serialized_changes[CustomObject] = nil
+		--warn(Descendant,typeof(customObject), 'Removed.',customObject,Core.unloaded_cache)
+		CustomObject.Removed:Fire(CustomObject)
+	end)
 
+	if typeof(Core.awaiting_cache[UUID]) == "Signal" then
+		Core.awaiting_cache[UUID]:Fire(CustomObject)
+	end
 	Core.awaiting_cache[UUID] = nil
 	local FireLoadedEvent = CustomObject._Loaded and CustomObject._Loaded:Fire(CustomObject)
 	CustomObject._ReadOnly._Loaded = nil
@@ -169,14 +183,14 @@ function CO._init(CustomObject,...)
 
 end
 
-function CO:Initialize()
+function CO:Initialize(...)
 	local NewRan = self._ReadOnly._NewRan
 	self._ReadOnly._AutoInit = ((not NewRan) and true) or nil --defer init until object is loaded(called from .new())
 	local yieldTilLoad = NewRan and self._Loaded and self._Loaded:Wait()
-	local doInit = NewRan and DoInit(self) --only actually do it if it's not coming from .new()
+	local doInit = NewRan and DoInit(self,...) --only actually do it if it's not coming from .new()
 end
 
-function CO:Destroy()
+--[[function CO:Destroy()
 	local _ReadOnly = self._ReadOnly
 
 	Core.loaded_cache[self:GetUUID()] = nil
@@ -184,18 +198,18 @@ function CO:Destroy()
 		Core.unloaded_cache[self:GetUUID()] = nil
 	end
 
-	_ReadOnly._Obj:Destroy()
-
 	local CleanUp = self._Properties._CleanUp and self._Properties:_CleanUp()
 	_ReadOnly._ShownMaid:DoCleaning()
+
+	_ReadOnly._Obj:Destroy()
 
 	SerializeUtil.serialized_cache[_ReadOnly._Obj] = nil
 	SerializeUtil.serialized_changes[self] = nil
 
-	local fireRemoved = RunService:IsClient() and CO.Removed:Fire(self)
+	local fireRemoved = RunService:IsClient() and CO.Removed:Fire(self)]]
 	--print('[Evolve] Destroy() called on:',self)
 	--local ReplicateDestruction = RunService:IsServer() and script.SendObjects:FireAllClients(self:GetUUID(),_ReadOnly._Obj,"_DESTROY")
-end
+--end
 
 function CO:GetObject()
 	return self._ReadOnly._Obj
@@ -209,6 +223,9 @@ function CO:GetUUID()
 	return self._ReadOnly._UUID
 end
 
+function CO:GetMaid()
+	return self._ReadOnly._ShownMaid
+end
 --CO.Await = LoadUtil.Await
 
 function CO:GetPropertyChangedSignal(property)
@@ -254,9 +271,9 @@ function CO:__index(i)
 		local ObjHasProperty, ObjProperty = Core.CheckIfHasProperty(self._ReadOnly._Obj,i,true)
 
 		if type(ObjProperty) == "function" then
-			if i:lower() == "destroy" or i:lower() == "remove" then
+			--[[if i:lower() == "destroy" or i:lower() == "remove" then
 				self:Destroy()
-			end
+			end]]
 			local ChangeSelfArgAndRun = function(...)
 				local args = {...}
 				args[1] = self._ReadOnly._Obj

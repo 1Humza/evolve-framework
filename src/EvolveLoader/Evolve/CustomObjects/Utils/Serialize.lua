@@ -36,8 +36,6 @@ local function Serialize(PropertyTbl)
 			newTable._root = unpack(Serialize({mtbl._root}))
 			SerializedProperties[i] = newTable
 			--warn("[Evolve] Serializing..Found NestedPropertyTable!",i,newTable)
-		elseif typeof(v) == "NestedPropertyPath" then
-			
 		elseif typeof(v) == "Instance" then
 			local GenerateUUID = UUIDUtil.Generate(v)
 			SerializedProperties[i] = Core.FormatObj(v)
@@ -115,9 +113,9 @@ function Util.Decode(Data,dataSet)
 				--warn("[Evolve] Added", UUID, "to decode queue.",Decode_Queue)
 			end
 			if not Data._Obj.Instance then
-				Data._Obj.Instance = game:GetService("CollectionService"):GetTagged("_UUID_"..UUID)[1]
+				target_tbl._ReadOnly._Obj = game:GetService("CollectionService"):GetTagged("_UUID_"..UUID)[1]
 				--print("[Evolve] Checking if instance exists...",Data._Obj.Instance)
-				if not Data._Obj.Instance then
+				if not target_tbl._ReadOnly._Obj then
 					unloaded_cache[UUID] = target_tbl
 					--warn("[Evolve] Instance not found, waiting for _Obj:",target_tbl)
 				end
@@ -209,7 +207,7 @@ function Util.ReplicateChange(self,i,v)
 		--print('[Evolve] Replicating NestedPropertyTable:',self,i,v)
 		v = unpack(Serialize({v}))
 	elseif typeof(v) == "NestedPropertyTable" then
-		v = Serialize(v._data)
+		v = Serialize(getmetatable(v)._data)
 	elseif typeof(v) == "CustomObject" then
 		v = (serialized_cache[Obj] and {_Obj = Core.FormatObj(v:GetObject()),_ClassName = v:GetClassName()}) or Util.Encode(v)
 	end

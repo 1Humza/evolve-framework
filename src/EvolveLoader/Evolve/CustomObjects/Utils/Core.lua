@@ -14,8 +14,9 @@ local Maid = require("Maid")
 
 
 Core.unloaded_cache = (RunService:IsClient() and setmetatable({},{__mode="v"})) or nil
-Core.loaded_cache = {}
+Core.loaded_cache = setmetatable({},{__mode="v"})
 Core.awaiting_cache = setmetatable({},{__mode="v"})
+Core.strong_ref = {}
 
 
 
@@ -142,6 +143,10 @@ function Core.NewCustomObject(_ReadOnly,IsReplicated)
 	_ReadOnly._UUID = _ReadOnly._UUID or UUIDUtil.Generate(_ReadOnly._Obj)
 	_ReadOnly._Loaded = Core.awaiting_cache[_ReadOnly._UUID] or Events.new("Signal")
 
+	if _ReadOnly._Obj and _ReadOnly._Obj:IsDescendantOf(game) then
+		Core.strong_ref[_ReadOnly._UUID] = NewCO
+	end
+
 	for prop,v in pairs(props or {}) do
 		NewCO[prop] = v-- Iterating through all properties allows __newindex to process them.
 	end
@@ -158,7 +163,7 @@ function Core.NewCustomObject(_ReadOnly,IsReplicated)
 			con:Disconnect()
 			for i,superclass in ipairs(superclasses) do--Start
 				if not superclass.Start then continue end
-				superclass.Start(NewCO,_ReadOnly._ShownMaid)
+				superclass.Start(NewCO,_ReadOnly._ShownMaid,unpack(args))
 			end
 		end)
 

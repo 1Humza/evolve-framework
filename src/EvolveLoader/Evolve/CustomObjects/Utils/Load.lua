@@ -79,7 +79,7 @@ if RunService:IsServer() then
 		
 	end)
 	
-	game.DescendantRemoving:Connect(function(Descendant)
+	--[[game.DescendantRemoving:Connect(function(Descendant)
 		
 		local Success,UUID = pcall(function() return Descendant:GetAttribute("UUID") end)
 		if not (Success and UUID) then return end
@@ -91,7 +91,7 @@ if RunService:IsServer() then
 
 		local Destroy = (not Object._ReadOnly._DestroyedConn.Connected) and Object:Destroy()
 		
-	end)
+	end)]]
 
 elseif RunService:IsClient() then
 	

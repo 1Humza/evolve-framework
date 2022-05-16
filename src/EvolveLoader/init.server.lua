@@ -55,36 +55,49 @@ local function ReplicateDirectory(Directory)
 	end
 	--LoadChildClasses(Directory)
 
+	local function HasServerModules(Class)
+		return Class:FindFirstChild(Class.Name..'-Server')
+	end
+	local function HasClientModules(Class)
+		return Class:FindFirstChild(Class.Name..'-Shared') or Class:FindFirstChild(Class.Name..'-Client')
+	end
+
 	local function ReplicateClass(Class)
 
-		local HasServerModules = Class:FindFirstChild(Class.Name..'-Server')
-		local HasClientModules = Class:FindFirstChild(Class.Name..'-Shared') or Class:FindFirstChild(Class.Name..'-Client')
+		local hasServerModules = HasServerModules(Class)
+		local hasClientModules = HasClientModules(Class)
 
-		--local FormattedCorrectly = HasServerModules or HasClientModules
+		--local FormattedCorrectly = hasServerModules or hasClientModules
 		
 		--if not FormattedCorrectly then return end
 		--local RemoveBrokenClass = not FormattedCorrectly and --warn("[Evolve] Class:",Class,"Empty or Module(s) incorrectly named. Will not load.",Class:Destroy())
 
 		local NewClass = CreateDirectory(Class.Name)
 		
-		local x = HasServerModules and NewClass:SetAttribute("HasServerSide",true)
+		local markServerSide = hasServerModules and NewClass:SetAttribute("HasServerSide",true)
 
 		for _,Child in ipairs(Class:GetChildren()) do
 			if Child:IsA("Folder") and Child.Name:find("Classes")then
 				local NewDirectory = ReplicateDirectory(Child)
-				if #NewDirectory:GetChildren() > 0 then
-					NewDirectory.Parent = NewClass
-				end
-			elseif Child:IsA("Folder") and not Child.Name:find("Classes") then
+				NewDirectory.Parent = NewClass
+			elseif Child:IsA("Folder") and not (HasServerModules(Class) or HasClientModules(Class)) then
 				ReplicateClass(Child).Parent = NewClass
-			elseif HasClientModules and Child:IsA("ModuleScript") then
+			elseif hasClientModules and Child:IsA("ModuleScript") then
 				if Child.Name ~= Class.Name.."-Server" then
 					Child.Parent = NewClass
+					for _,child in pairs(Class:GetChildren()) do
+						local _,findClassInName = child.Name:find(child.Parent.Name,1,true)
+						local Suffix = findClassInName and child.Name:sub(findClassInName+1)
+						if child.Name ~= "SubClasses" and child.Name ~= "ChildClasses"-- Replicate Instances in shared space
+							and ((Suffix and Suffix ~= "-Server" and Suffix ~= "-Client" and Suffix ~="-Shared") or not Suffix) then
+							child:Clone().Parent = NewClass
+						end
+					end
 				end
 			end
 		end
 
-		if not HasServerModules and HasClientModules then Class:Destroy() end
+		if not hasServerModules and hasClientModules then Class:Destroy() end
 
 		return NewClass
 	end
